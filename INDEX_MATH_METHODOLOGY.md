@@ -49,60 +49,69 @@ current pipeline; the hook `divisor` is the shared denominator.)
 
 ## 2. What we add over S&P (our innovations)
 
-### 2.1 Fisher price + Fisher quantity decomposition
+### 2.1 The full Fisher/Laspeyres/Paasche family, maintained in PARALLEL
 S&P's index is a *single* Laspeyres-derived number. It cannot be decomposed
 into a pure price move and a pure quantity (capital-structure) move, because it
-has no Paasche arm. We add a **dual-arm Fisher price index**:
+has no Paasche arm. We compute the **entire index-number family at once** on the
+same basket, so they can be compared, blended, and stress-tested without
+rebuilding the pipeline:
 
-    L_p = Σ P_t Q_0 / Σ P_0 Q_0        (Laspeyres arm, base shares)
-    P_p = Σ P_t Q_t / Σ P_0 Q_t        (Paasche arm, current shares)
-    P_F = √(L_p · P_p)                  (Fisher = geometric mean)
+    L_p = Σ P_t Q_0 / Σ P_0 Q_0        (Laspeyres price, base shares)
+    P_p = Σ P_t Q_t / Σ P_0 Q_t        (Paasche price, current shares)
+    F   = √(L_p · P_p)                 (Fisher price = ideal geometric mean)
+    V_t = Σ P_t Q_t / D_t              (== S&P value index, by construction)
+    Q_F = V_t / F                      (derived Fisher quantity; continuity inherited)
 
-and a **derived Fisher quantity index** from the S&P value index:
+Every variant is stored in one long `index_levels` table keyed by `variant`, and
+a `divisors` registry tracks each variant's divisor. This is the structural
+improvement: **all constructions are first-class and co-maintained**, so the fund
+can run S&P, Laspeyres, Paasche, and Fisher side by side and read the spread
+between them as a live signal (e.g. L−P spread = the substitution/drift bias).
 
-    V_t = Σ P_t Q_t / D_t               (== S&P value index, by construction)
-    Q_F = V_t / P_F                     (derived; continuity inherited)
-
-**Why this is superior for fund management:** every period return now splits
+**Why this is superior for fund management:** every period return splits
 geometrically into a *valuation* component (`ret_price`) and a *capital-structure*
 component (`ret_qty`):
 
     ret_total = ret_price · ret_qty
 
-This is the literal building block for the "Fisher quantity sleeve" in the macro
-layer: `ret_qty` isolates share issuance / buyback / float drift — information a
-cap-weighted S&P path hides. It is also theoretically *ideal*: Fisher's index
-satisfies the time-reversal and factor-reversal tests that Laspeyres and Paasche
-each fail individually.
+`ret_qty` isolates share issuance / buyback / float drift — information a
+cap-weighted S&P path hides. Fisher also satisfies the time-reversal and
+factor-reversal tests that Laspeyres and Paasche each fail individually.
 
-### 2.2 Chained base re-anchoring (our core innovation)
+### 2.2 Our parallel divisor methodology: chained (rolling-base) re-anchoring
 S&P keeps a *fixed* base (Q_0 from the inception date) and only re-scales via the
 divisor at discrete events. Between events, weights drift with price — the well
 known **large-cap momentum bias** of cap-weighting (overweighting past winners).
 
-We add a **chained** mode that re-anchors the base window every `chain_n` trading
-days and computes period-over-period *links*:
+We add a **chained** divisor methodology that re-anchors the base window every
+`chain_n` trading days and chains period-over-period *links*:
 
     link_t = Fisher( basket_t ; basket_{t-1} , base_window )
     level_t = base_level · Π link_τ  (τ ≤ t)
 
-This is the same chaining already used in `stock_monitor/fisher_index.py` (and
-standard in official Fisher series), and it **kills the substitution/drift bias**
-S&P's fixed base suffers from. The two modes are selectable in `IndexMath`:
+This is the same chaining used in `stock_monitor/fisher_index.py` (and standard
+in official Fisher series). Unlike S&P's single divisor, our chained arms carry
+*no fixed Q_0* to drift — the base rolls continuously. We maintain **both**
+families at once:
 
-    IndexMath(..., mode="chained")   # our innovation
-    IndexMath(..., mode="fixed")     # S&P-like baseline
+  * S&P single divisor D + fixed-base arm divisors (L, P, F) — for exact
+    continuity and the Fisher identity `F = √(L·P)`.
+  * OUR chained divisors (chained_fisher, chained_laspeyres) — for the
+    de-biased path.
 
-so the fund can *measure* the bias it is avoiding, not just assert it.
+The fund can *measure* the bias it is avoiding (live `substitution_bias_ratio`,
+`delta_fisher_vs_chained`) rather than assert it.
 
-### 2.3 Divisor events on a chained series
-Chaining alone cannot cleanly absorb a *non-market* event (add/delete) without
-re-chaining the whole history. We keep S&P's divisor for that purpose and apply
-it **only** to the value index; the chained Fisher links already exclude price
-moves, so they need no adjustment. In fixed mode we additionally rescale both
-Fisher-arm divisors by k to preserve symmetry. This is the complementary bridge:
-**S&P continuity for composition changes + Fisher idealness for price/quantity
-separation.**
+### 2.3 Divisor events maintained across ALL variants atomically
+A non-market event (add/delete, corp action) is absorbed by re-scaling every
+maintained divisor at once in `apply_event`:
+  * S&P divisor D → D·k (S&P eq. 6), value index flat.
+  * fixed arms divisors (L, P, F) → ·k, symmetry preserved.
+  * chained arms → post-event levels rescaled by k (the rolling base already
+    makes the *path* event-invariant, so this is continuity only).
+
+This is the complementary bridge: **S&P continuity for composition changes +
+Fisher idealness for price/quantity separation + our chained path for de-biasing.**
 
 ### 2.4 Point-in-time fundamentals for the quality gate
 S&P math is purely price/quantity. We bolt on a PIT-aware quality/value gate
@@ -116,14 +125,15 @@ quality is auditable.
 
 ## 3. Superior / complementary summary
 
-| Concern | S&P alone | Our addition | Why better for the fund |
+|| Concern | S&P alone | Our addition | Why better for the fund |
 |---|---|---|---|
-| Continuity across rebalances | ✓ divisor | same divisor | Non-negotiable; adopted as-is |
-| Price vs quantity separation | ✗ single number | Fisher P_F + derived Q_F | Isolates valuation from capital-structure drift → Fisher quantity sleeve |
-| Substitution / momentum bias | ✗ fixed base drifts | chained re-anchor | Avoids overweighting past winners; measurable vs fixed baseline |
-| Ideal index properties | ✗ L/P fail tests | Fisher (time/factor reversal) | Theoretically grounded decomposition |
+| Continuity across rebalances | ✓ single divisor | same divisor + parallel arm divisors | Non-negotiable; adopted as-is, PLUS all arms co-maintained |
+| Price vs quantity separation | ✗ single number | full L/P/Fisher family in parallel | Isolates valuation from capital-structure drift → Fisher quantity sleeve; L−P spread is a live bias gauge |
+| Substitution / momentum bias | ✗ fixed base drifts | our chained (rolling-base) divisor | Avoids overweighting past winners; measurable live vs fixed baseline |
+| Ideal index properties | ✗ L/P fail tests | Fisher (time/factor reversal) | Theoretically grounded decomposition, co-stored with S&P for audit |
 | Quality screen | ✗ out of scope | PIT Buffett/trifecta/leverage | Dual-pass first leg, no look-ahead |
-| Non-market event on chained series | ✗ chaining can't absorb | divisor on value + symmetric arm shift | Best of both: continuity + idealness |
+| Non-market event across the family | ✗ chaining can't absorb alone | one `apply_event` re-scales S&P + all arm + chained divisors | Atomic continuity across the whole variant set |
+| All constructions at once | ✗ must rebuild | one `run_all`, `index_levels` long table | Compare/blend/stress without re-piping |
 
 **Net:** S&P gives us a correct, industry-standard *continuity primitive*. We
 wrap it with a Fisher decomposition and chaining that turn a single cap-weighted
@@ -138,10 +148,10 @@ regime align, and rotate risk when stress and leadership change.
 | File | Role |
 |---|---|
 | `src/data/market_data.py` | Capture (trades, prices, shares, sleeves) + PIT fundamentals; audited clean panel; `build_panel_from_parquet` bridges real `stock_monitor` parquet |
-| `src/analytics/index_math.py` | `IndexMath`: value index (S&P divisor), dual-arm / chained Fisher price, derived Fisher qty, nominal decomposition, `apply_event` divisor logic. Modes: `chained` (innovation) and `fixed` (S&P baseline) |
+| `src/analytics/index_math.py` | `IndexMath`: S&P value index (single divisor) + fixed-base Laspeyres/Paasche/Fisher arms + OUR chained Fisher & chained Laspeyres — **all six maintained in parallel** in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically |
 | `src/analytics/quality_value.py` | Buffett/trifecta/leverage/DuPont gates; NULL-safe; reports coverage |
-| `src/adapter_stockmonitor.py` | Runs the full pipeline over the real `stock_monitor` parquet store; compares both modes |
+| `src/adapter_stockmonitor.py` | Runs the full pipeline over the real `stock_monitor` parquet store; emits live comparison metrics across the whole variant family |
 | `sql/nominal_index_pipeline.sql` | Same math as DuckDB-Wasm SQL for the dashboard SQL Lab |
-| `tests/test_index_math.py` | Synthetic smoke + property tests (identity `P_F·Q_F=V`, chaining, continuity) for both modes |
+| `tests/test_index_math.py` | Synthetic property tests: all variants run, Fisher identity `F=√(L·P)`, value = price×quantity, event continuity across all variants, chained ≠ fixed |
 
-See `docs/INNOVATIONS_RUNBOOK.md` for the run/verify commands.
+See `RUNBOOK.md` for the run/verify commands.

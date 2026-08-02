@@ -1,10 +1,12 @@
-"""Smoke + property tests for the index math.
+"""Smoke + property tests for the parallel multi-variant index math.
 
-Covers both modes so we can compare the innovation (chained) against the
-S&P-like baseline (fixed):
-  - Fisher identity  nominal == price * qty  (every date, both modes)
-  - Chaining produces finite, positive levels
-  - Divisor event preserves value-index continuity (no jump) in both modes
+All six constructions are computed together and verified:
+  - S&P value index uses a single divisor D (continuity on a non-market event)
+  - Fisher identity  F  == sqrt(Laspeyres * Paasche)   (fixed base)
+  - Value == price * quantity   for every price variant
+  - Chained arms: continuity preserved across a divisor (non-market) event,
+    and chained != fixed-base (de-biasing active)
+  - Our chained_fisher differs from S&P-derived fixed fisher (the improvement)
 """
 from __future__ import annotations
 
@@ -13,71 +15,136 @@ import datetime as dt
 from src.data.market_data import (
     MarketDataStore, DailyPrice, ShareCount, SleeveTag,
 )
-from src.analytics.index_math import IndexMath, FIXED_MODE, CHAINED_MODE
+from src.analytics import index_math as im
 
 
-def _seed(store: MarketDataStore, n_days: int = 200) -> None:
-    base = dt.date(2024, 1, 1)
-    days = [base + dt.timedelta(days=i) for i in range(n_days)]
-    for t in ["AAA", "BBB", "CCC"]:
-        pr = []
-        for i, d in enumerate(days):
-            px = 100.0 * (1.004 ** i) * (1.0 + 0.001 * ((i * 7) % 5))
-            pr.append(DailyPrice(t, d, px, px, px, px, 1000 + i, px))
-        store.ingest_prices(pr)
-        store.ingest_shares([ShareCount(t, base, 100.0 + 0.1 * i, 1.0)])
-        store.ingest_sleeves([SleeveTag(t, "SP500", base)])
-
-
-def _check_mode(mode: str, n_days: int = 200):
+def _synth_store() -> MarketDataStore:
     store = MarketDataStore(":memory:")
-    _seed(store, n_days)
-    idx = IndexMath(store, dt.date(2024, 1, 1), base_level=1000.0,
-                    chain_n=21, mode=mode)
+    con = store.conn()
+    # 3 tickers, 200 days, deterministic so chaining re-anchors a few times
+    prices, shares, tags = [], [], []
+    base = [100.0, 101.0, 99.0, 102.0, 103.0] * 40
+    for i, tk in enumerate(["A", "B", "C"]):
+        sh = 1_000_000 * (i + 1)
+        for d in range(200):
+            date = dt.date(2020, 1, 1) + dt.timedelta(days=d)
+            px = base[d]
+            prices.append(DailyPrice(tk, date, px, px, px, px, 1_000_000, px))
+            shares.append(ShareCount(tk, date, sh, 1.0))
+            tags.append(SleeveTag(tk, "SP500", date))
+    store.ingest_prices(prices)
+    store.ingest_shares(shares)
+    store.ingest_sleeves(tags)
+    return store
+
+
+def test_all_variants_run():
+    store = _synth_store()
+    base = dt.date(2020, 1, 1)
+    idx = im.IndexMath(store, base, 1000.0, "SP500", chain_n=21)
     idx.run_all()
     con = store.conn()
-
-    rows = con.execute(
-        "SELECT trade_date, nominal_idx, price_idx, qty_idx FROM nominal_decomp "
-        "ORDER BY trade_date").fetchall()
-    assert len(rows) == n_days, f"{mode}: expected {n_days} rows, got {len(rows)}"
-
-    for _, nominal, price, qty in rows:
-        assert price > 0 and qty > 0, f"{mode}: non-positive Fisher level"
-        assert abs(nominal - price * qty) < 1e-6, \
-            f"{mode}: identity broken {nominal} vs {price*qty}"
-
-    # continuity across a non-market event
-    ev = dt.date(2024, 2, 1)
-    lvl_before = con.execute(
-        "SELECT value_idx FROM value_index WHERE trade_date=?", [ev]).fetchone()[0]
-    mv_before = con.execute(
-        "SELECT SUM(mv_t) FROM idx_panel WHERE trade_date>=?", [ev]).fetchone()[0]
-    con.execute("UPDATE idx_panel SET mv_t = mv_t * 1.10 WHERE trade_date >= ?", [ev])
-    k = idx.apply_event(mv_before, mv_before * 1.10, ev)
-    assert abs(k - 1.10) < 1e-9
-    lvl_after = con.execute(
-        "SELECT value_idx FROM value_index WHERE trade_date=?", [ev]).fetchone()[0]
-    assert abs(lvl_after - lvl_before) < 1e-6, \
-        f"{mode}: continuity broken {lvl_before} -> {lvl_after}"
-    return idx
+    n = con.execute("SELECT COUNT(*) FROM index_levels").fetchone()[0]
+    assert n == 200 * len(im.ALL_VARIANTS), n
+    # every variant has a final level
+    for v in im.ALL_VARIANTS:
+        lv = con.execute(
+            "SELECT idx FROM index_levels WHERE variant=? "
+            "ORDER BY trade_date DESC LIMIT 1", [v]).fetchone()[0]
+        assert lv is not None and lv > 0, (v, lv)
 
 
-def test_both_modes():
-    chained = _check_mode(CHAINED_MODE)
-    fixed = _check_mode(FIXED_MODE)
+def test_fisher_identity_fixed_base():
+    """F == sqrt(Laspeyres * Paasche) at every date on the fixed base."""
+    store = _synth_store()
+    base = dt.date(2020, 1, 1)
+    idx = im.IndexMath(store, base, 1000.0, "SP500", chain_n=21)
+    idx.run_all()
+    con = store.conn()
+    bad = con.execute(
+        """
+        SELECT COUNT(*) FROM (
+            SELECT trade_date,
+                   MAX(CASE WHEN variant='fisher'    THEN idx END) AS f,
+                   MAX(CASE WHEN variant='laspeyres' THEN idx END) AS l,
+                   MAX(CASE WHEN variant='paasche'   THEN idx END) AS p
+            FROM index_levels GROUP BY trade_date
+        ) WHERE ABS(f - SQRT(l*p)) > 1e-6
+        """
+    ).fetchone()[0]
+    assert bad == 0, f"{bad} rows violate Fisher identity"
 
-    # The two modes should differ (chaining de-biases vs fixed base) but both
-    # stay positive and finite. We don't assert which is "better" here; the
-    # dashboard comparison is the place for that judgement.
-    c_last = chained.con.execute(
-        "SELECT fisher_price_idx FROM fisher_price ORDER BY trade_date DESC LIMIT 1").fetchone()[0]
-    f_last = fixed.con.execute(
-        "SELECT fisher_price_idx FROM fisher_price ORDER BY trade_date DESC LIMIT 1").fetchone()[0]
-    assert c_last > 0 and f_last > 0
-    print(f"OK: both modes verified. chained_price_last={c_last:.2f} "
-          f"fixed_price_last={f_last:.2f} (differ => de-biasing active)")
+
+def test_value_equals_price_times_quantity():
+    store = _synth_store()
+    base = dt.date(2020, 1, 1)
+    idx = im.IndexMath(store, base, 1000.0, "SP500", chain_n=21)
+    idx.run_all()
+    con = store.conn()
+    bad = con.execute(
+        """
+        WITH q AS (
+            SELECT trade_date, variant,
+                   nominal_idx / NULLIF(price_idx,0) AS q_implied
+            FROM nominal_decomp
+        )
+        SELECT COUNT(*) FROM q
+        WHERE ABS(q_implied - (SELECT qty_idx FROM nominal_decomp x
+                               WHERE x.trade_date=q.trade_date
+                                 AND x.variant=q.variant)) > 1e-9
+        """
+    ).fetchone()[0]
+    assert bad == 0, bad
+
+
+def test_event_continuity_all_variants():
+    """A non-market event (mv_after != mv_before) must leave every variant's
+    level flat AT the event date — the divisor absorbs it. Compare each variant's
+    level at the event date before vs after apply_event()."""
+    store = _synth_store()
+    base = dt.date(2020, 1, 1)
+    idx = im.IndexMath(store, base, 1000.0, "SP500", chain_n=21)
+    idx.run_all()
+    ev = dt.date(2020, 6, 1)
+    con = store.conn()
+    before = {v: con.execute(
+        "SELECT idx FROM index_levels WHERE variant=? AND trade_date=?",
+        [v, ev]).fetchone()[0] for v in im.ALL_VARIANTS}
+    mv_before = store.conn().execute(
+        "SELECT SUM(mv_t) FROM idx_panel WHERE trade_date=?", [ev]).fetchone()[0]
+    mv_after = mv_before * 1.05   # +5% non-market event
+    idx.apply_event(mv_before, mv_after, ev)
+    for v in im.ALL_VARIANTS:
+        after = con.execute(
+            "SELECT idx FROM index_levels WHERE variant=? AND trade_date=?",
+            [v, ev]).fetchone()[0]
+        assert before[v] is not None and after is not None
+        assert abs(before[v] - after) < 1e-6, (v, before[v], after)
+
+
+def test_chained_differs_from_fixed():
+    """Our chained Fisher must not equal the S&P-derived fixed Fisher base case
+    over a horizon long enough to re-anchor -> de-biasing is active."""
+    store = _synth_store()
+    base = dt.date(2020, 1, 1)
+    idx = im.IndexMath(store, base, 1000.0, "SP500", chain_n=21)
+    idx.run_all()
+    con = store.conn()
+    cf = con.execute(
+        "SELECT idx FROM index_levels WHERE variant='chained_fisher' "
+        "ORDER BY trade_date DESC LIMIT 1").fetchone()[0]
+    f = con.execute(
+        "SELECT idx FROM index_levels WHERE variant='fisher' "
+        "ORDER BY trade_date DESC LIMIT 1").fetchone()[0]
+    assert abs(cf - f) > 1e-6, "chained must differ from fixed-base fisher"
+    print(f"OK: all variants verified. chained_fisher_last={cf:.2f} "
+          f"fisher_last={f:.2f} (differ => de-biasing active)")
 
 
 if __name__ == "__main__":
-    test_both_modes()
+    test_all_variants_run()
+    test_fisher_identity_fixed_base()
+    test_value_equals_price_times_quantity()
+    test_event_continuity_all_variants()
+    test_chained_differs_from_fixed()
+    print("ALL TESTS PASSED")
