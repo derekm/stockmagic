@@ -42,11 +42,17 @@ def run(data_dir: str, universe: str, base_level: float = 1000.0,
 
     store.build_panel_from_parquet(data_dir, base_date, universe)
 
+    out: dict = {"variants": {}}
+    con = store.conn()
+
+    # PIT snapshot timeseries + backfill (daily, forward-filled, PIT-honest)
+    from src.data import pit_snapshots as pits
+    n_snap = pits.build_snapshot_timeseries(store, recompute_marketcap=True)
+    out["pit_snapshots"] = n_snap
+
     idx = im.IndexMath(store, base_date, base_level, universe, chain_n=chain_n)
     idx.run_all()
 
-    out: dict = {"variants": {}}
-    con = store.conn()
     for v in im.ALL_VARIANTS:
         row = con.execute(
             "SELECT nominal_idx, price_idx, qty_idx, ret_total "
@@ -62,9 +68,12 @@ def run(data_dir: str, universe: str, base_level: float = 1000.0,
     out["n_dates"] = con.execute(
         "SELECT COUNT(DISTINCT trade_date) FROM index_levels").fetchone()[0]
 
-    # quality gate (dual-pass first leg) over the latest PIT fundamentals
-    pit_as_of = store.conn().execute("SELECT MAX(as_of) FROM pit_fundamentals").fetchone()[0]
-    quality_value.qualify(store.conn(), pit_as_of)
+    # quality gate (dual-pass first leg) over the PIT snapshot timeseries.
+    # Report the latest snapshot's pass count, then a HISTORICAL sweep: qualify
+    # as-of each year-end to show how the quality set evolves (no look-ahead).
+    pit_latest = store.conn().execute(
+        "SELECT MAX(snapshot_date) FROM pit_snapshots").fetchone()[0]
+    pits.qualify_as_of(store, pit_latest)
     n_pass = store.conn().execute(
         "SELECT COUNT(*) FROM quality_pass "
         "WHERE trifecta_ok AND buffett_ok AND leverage_ok"
@@ -72,6 +81,22 @@ def run(data_dir: str, universe: str, base_level: float = 1000.0,
     cov = store.conn().execute("SELECT AVG(trifecta_coverage) FROM quality_pass").fetchone()[0]
     out["quality_pass_count"] = n_pass
     out["trifecta_coverage_avg"] = round(cov, 2) if cov is not None else None
+    # historical sweep: qualify as-of each year-end to show how the quality
+    # set evolves (no look-ahead — qualify_as_of picks the latest PIT snapshot
+    # that is <= the year-end date).
+    year_ends = store.conn().execute(
+        "SELECT DISTINCT LAST_DAY(DATE_TRUNC('year', trade_date) + INTERVAL 1 YEAR - INTERVAL 1 DAY) AS ye "
+        "FROM daily_prices ORDER BY ye"
+    ).fetchall()
+    yearly = []
+    for (sd,) in year_ends:
+        pits.qualify_as_of(store, sd)
+        np_ = store.conn().execute(
+            "SELECT COUNT(*) FROM quality_pass "
+            "WHERE trifecta_ok AND buffett_ok AND leverage_ok"
+        ).fetchone()[0]
+        yearly.append({"as_of": sd.isoformat(), "quality_pass": np_})
+    out["quality_sweep_yearly"] = yearly
 
     # ---- live comparison metrics across the family -----------------------
     # Pull each variant's level series, join on date, and compare against the
@@ -144,6 +169,7 @@ def main() -> None:
              args.start_year)
     print(f"Universe={res['universe']} base={res['base_date']} "
           f"dates={res['n_dates']} "
+          f"pit_snapshots={res['pit_snapshots']} "
           f"quality_pass={res['quality_pass_count']} "
           f"trifecta_coverage_avg={res['trifecta_coverage_avg']}")
     for v, r in res["variants"].items():
@@ -162,6 +188,9 @@ def main() -> None:
     if "substitution_bias_ratio" in res["comparison"]:
         print(f"  substitution_bias_ratio="
               f"{res['comparison']['substitution_bias_ratio']}")
+    print("QUALITY SWEEP (quality_pass count as-of each year-end):")
+    for y in res.get("quality_sweep_yearly", []):
+        print(f"  {y['as_of']}  quality_pass={y['quality_pass']}")
 
 
 if __name__ == "__main__":

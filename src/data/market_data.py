@@ -11,10 +11,9 @@ This module is intentionally storage-agnostic: it writes Parquet via DuckDB
 so the analytics layer can read it back with zero serialization code.
 """
 from __future__ import annotations
-
 import datetime as dt
 from dataclasses import dataclass, field
-from typing import Iterable
+from pathlib import Path
 
 import duckdb
 
@@ -162,7 +161,7 @@ class MarketDataStore:
     def build_panel_from_parquet(self, data_dir: str, base_date: dt.date,
                                  universe: str = "SP500",
                                  clean_prices: str = "daily_prices_clean.parquet",
-                                 pit: str = "fundamentals_pit.parquet",
+                                 pit: str | None = None,
                                  monitored: str = "monitored_stocks.parquet"):
         """Register real parquet as DuckDB tables and build idx_panel.
 
@@ -174,7 +173,15 @@ class MarketDataStore:
         PIT fundamentals are registered as pit_fundamentals with columns
         renamed to match quality_value.py (pb_ratio->pb, mktcap_to_assets->
         mcap_assets, as_of_date->as_of).
+
+        `pit` defaults to the multi-snapshot `fundamentals.parquet` (real
+        quarterly history, 2024-2026) when present, falling back to the single
+        snapshot `fundamentals_pit.parquet`. Prefer the multi-snapshot source so
+        the PIT backfill is genuinely historical, not a constant.
         """
+        if pit is None:
+            cand = Path(data_dir) / "fundamentals.parquet"
+            pit = "fundamentals.parquet" if cand.exists() else "fundamentals_pit.parquet"
         self.con.execute(f"CREATE OR REPLACE TABLE daily_prices AS "
                          f"SELECT ticker, date AS trade_date, close AS adj_close "
                          f"FROM read_parquet('{data_dir}/{clean_prices}')")
@@ -211,11 +218,13 @@ class MarketDataStore:
             f"""
             CREATE OR REPLACE TABLE pit_fundamentals AS
             SELECT ticker, as_of_date AS as_of,
+                   market_cap, market_cap_b,
                    roe, roic, ev_ebitda, pb_ratio AS pb, mktcap_to_assets AS mcap_assets,
-                   debt_to_equity AS debt_equity, interest_coverage
+                   debt_to_equity AS debt_equity, interest_coverage,
+                   total_assets
             FROM read_parquet('{data_dir}/{pit}')
-            """)
-        # now build the standard panel (reuses the join logic)
+            """
+        )
         return self.build_clean_panel(base_date, universe)
 
     def conn(self) -> duckdb.DuckDBPyConnection:
