@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+*.parquet
+.idea/
+stock_monitor/
+stock_monitor_repo/
+docs/
+test*.parquet
+trades.parquet
+uv.lock
+.pytest_cache/
