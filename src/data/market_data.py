@@ -158,5 +158,65 @@ class MarketDataStore:
         n = self.con.execute("SELECT COUNT(*) FROM idx_panel").fetchone()[0]
         return n
 
+    # ---- parquet-backed panel (bridge to stock_monitor real data) --------
+    def build_panel_from_parquet(self, data_dir: str, base_date: dt.date,
+                                 universe: str = "SP500",
+                                 clean_prices: str = "daily_prices_clean.parquet",
+                                 pit: str = "fundamentals_pit.parquet",
+                                 monitored: str = "monitored_stocks.parquet"):
+        """Register real parquet as DuckDB tables and build idx_panel.
+
+        Bridges the existing stock_monitor store:
+          - price  : close  -> p_t          (daily_prices_clean)
+          - qty    : market_cap / close -> q_t  (float-adj shares, derived
+                     from PIT fundamentals so Q_t is capital-structure correct)
+          - sleeve  : membership flags from monitored_stocks
+        PIT fundamentals are registered as pit_fundamentals with columns
+        renamed to match quality_value.py (pb_ratio->pb, mktcap_to_assets->
+        mcap_assets, as_of_date->as_of).
+        """
+        self.con.execute(f"CREATE OR REPLACE TABLE daily_prices AS "
+                         f"SELECT ticker, date AS trade_date, close AS adj_close "
+                         f"FROM read_parquet('{data_dir}/{clean_prices}')")
+        self.con.execute(
+            f"""
+            CREATE OR REPLACE TABLE share_counts AS
+            SELECT f.ticker,
+                   (SELECT MIN(trade_date) FROM daily_prices) AS as_of,
+                   -- derived float-adj shares = market_cap / close (applied to
+                   -- all history: single PIT snapshot treated as current shares)
+                   CASE WHEN p.adj_close IS NULL OR p.adj_close = 0 THEN NULL
+                        ELSE f.market_cap / p.adj_close END          AS shares_outstanding,
+                   1.0                                              AS iwf
+            FROM read_parquet('{data_dir}/{pit}') f
+            LEFT JOIN (SELECT ticker, adj_close FROM daily_prices
+                       WHERE trade_date = (SELECT MAX(trade_date) FROM daily_prices)
+                      ) p ON p.ticker = f.ticker
+            """)
+        self.con.execute(
+            f"""
+            CREATE OR REPLACE TABLE sp500_tags AS
+            SELECT ticker,
+                   CASE
+                     WHEN sp500_member THEN 'SP500'
+                     WHEN growth_tech_index THEN 'growth_tech'
+                     WHEN defensive_value_index THEN 'defensive_value'
+                     ELSE 'other' END AS sleeve_tag,
+                   COALESCE(added_date::DATE, (SELECT MIN(trade_date)
+                                               FROM daily_prices)) AS from_date
+            FROM read_parquet('{data_dir}/{monitored}')
+            """)
+        # PIT fundamentals with column rename to match quality_value.py
+        self.con.execute(
+            f"""
+            CREATE OR REPLACE TABLE pit_fundamentals AS
+            SELECT ticker, as_of_date AS as_of,
+                   roe, roic, ev_ebitda, pb_ratio AS pb, mktcap_to_assets AS mcap_assets,
+                   debt_to_equity AS debt_equity, interest_coverage
+            FROM read_parquet('{data_dir}/{pit}')
+            """)
+        # now build the standard panel (reuses the join logic)
+        return self.build_clean_panel(base_date, universe)
+
     def conn(self) -> duckdb.DuckDBPyConnection:
         return self.con
