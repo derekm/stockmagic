@@ -10,15 +10,35 @@ PYTHONPATH=. python -m src.adapter_stockmonitor \
 Computes SIX index constructions at once (S&P value, Laspeyres, Paasche,
 Fisher, chained Fisher, chained Laspeyres) and prints **live comparison metrics**:
 `substitution_bias_ratio`, `delta_fisher_vs_chained`, and per-variant cumulative
-return vs the S&P value benchmark.
+return vs the S&P value benchmark. It also runs the PIT layer (below) and prints a
+year-end quality sweep.
 
-## Unit tests (all variants)
+## Pipeline layers (in execution order)
+1. **Panel bridge** — `MarketDataStore.build_panel_from_parquet` registers the
+   real `stock_monitor` parquet as DuckDB tables (`daily_prices`, `share_counts`,
+   `sp500_tags`, `pit_fundamentals`) and builds `idx_panel`
+   (`P_t = adj_close`, `Q_t = shares * IWF`, `MV_t = P_t * Q_t`).
+2. **PIT snapshot backfill** — `pit_snapshots.build_snapshot_timeseries` produces
+   a daily `pit_snapshots` table: for each trading date, each ticker carries the
+   most-recently-available fundamentals (`as_of <= date`), with `market_cap` /
+   `mktcap_to_assets` re-derived from the price panel so capital-structure metrics
+   move with the market. `pit_snapshots.qualify_as_of(store, as_of)` then builds
+   the `quality_pass` gate as of any historical date (no look-ahead).
+3. **Index math** — `IndexMath.run_all` runs the value index, fixed-base arms,
+   chained arms, unifies them into `index_levels`, and decomposes each into
+   `ret_total = ret_price * ret_qty`.
+4. **Comparison + quality sweep** — the adapter pivots `index_levels`, prints the
+   family comparison and the year-end `quality_pass` counts.
+
+## Unit tests
 ```bash
 PYTHONPATH=. python -m tests.test_index_math
+PYTHONPATH=. python -m tests.test_pit_snapshots
 ```
-Asserts: all variants compute; Fisher identity `F = sqrt(L*P)`; value =
-price × quantity; event continuity across every variant's divisor; chained ≠
-fixed-base (de-biasing active).
+`test_index_math` asserts: all variants compute; Fisher identity `F = sqrt(L*P)`;
+value = price x quantity; event continuity across every variant's divisor; chained
+!= fixed-base (de-biasing active). `test_pit_snapshots` asserts the daily
+forward-fill PIT contract (no future data leaks) and the as-of quality gate.
 
 ## The variant family (parallel divisor methodology)
 | variant | construction | divisor family |
@@ -40,5 +60,11 @@ atomically (S&P eq. 6 + arm ·k + chained post-event rescale).
   collapse together; the `chained_*` arms break away as designed.
 - `ev_ebitda` is NULL for most PIT rows; `quality_value.qualify` treats NULL as
   "unknown" (does not disqualify) and reports `trifecta_coverage_avg`.
-- PIT fundamentals are a single latest snapshot; historical re-computation of
-  the quality gate needs a PIT snapshot timeseries + backfill (next work item).
+- The PIT backfill (`pit_snapshots.build_snapshot_timeseries`) is implemented as a
+  daily forward-fill keyed on `as_of <= date`. With only a single latest source
+  snapshot the backfill is a constant step function (PIT-correct, but not
+  historical). Genuinely time-varying backfill requires a multi-dated fundamentals
+  source (e.g. `fundamentals.parquet` quarterly history) — the routine stitches
+  those automatically when present.
+- Capping / AWF concentration limits are not implemented (see
+  `INDEX_MATH_METHODOLOGY.md` §3).
