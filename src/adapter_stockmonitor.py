@@ -25,7 +25,8 @@ from src.analytics import quality_value
 
 
 def run(data_dir: str, universe: str, base_level: float = 1000.0,
-        chain_n: int = 63, start_year: int | None = None) -> dict:
+        chain_n: int = 63, start_year: int | None = None,
+        reconcile: bool = False) -> dict:
     store = MarketDataStore(":memory:")
     # base_date = first trading day >= start_year (snap to actual price dates
     # so the divisor's base-day SUM is never empty).
@@ -103,6 +104,15 @@ def run(data_dir: str, universe: str, base_level: float = 1000.0,
     # S&P value index (the cap-weighted benchmark) and against our chained_fisher.
     out["comparison"] = _family_comparison(con, base_date)
 
+    # ---- OPTIONAL: reconcile against stock_monitor's own Fisher output -----
+    if reconcile:
+        from src.analytics import reconcile as rec
+        try:
+            rec_tbl = rec.reconcile_fisher(store, data_dir)
+            out["reconcile_fisher"] = rec_tbl
+        except Exception as e:  # file missing / LFS stub — reconciliation optional
+            out["reconcile_fisher_error"] = str(e)
+
     out["base_date"] = base_date.isoformat()
     out["universe"] = universe
     return out
@@ -126,7 +136,7 @@ def _family_comparison(con: duckdb.DuckDBPyConnection, base_date: dt.date) -> di
 
     cmp: dict = {}
     # endpoint cumulative returns vs S&P value (cap-weighted benchmark)
-    sp_last = dict(series(im.SNP))
+    sp_last = dict(series("sp_value"))
     sp0 = sp_last[base_date] if base_date in sp_last else None
     for v in variants:
         s = series(v)
@@ -142,16 +152,16 @@ def _family_comparison(con: duckdb.DuckDBPyConnection, base_date: dt.date) -> di
             "level_last": round(vT, 2),
         }
     # our chained_fisher vs S&P fixed-base fisher: the substitution-bias delta
-    if im.FISHER in cmp and im.CHAINED_FISHER in cmp:
+    if "sp_fisher" in cmp and "sp_chained_fisher" in cmp:
         cmp["delta_fisher_vs_chained"] = round(
-            cmp[im.CHAINED_FISHER]["level_last"] - cmp[im.FISHER]["level_last"], 4)
-    if im.FISHER in cmp and im.CHAINED_FISHER in cmp:
-        f0 = dict(series(im.FISHER))[base_date]
-        cf0 = dict(series(im.CHAINED_FISHER))[base_date]
+            cmp["sp_chained_fisher"]["level_last"] - cmp["sp_fisher"]["level_last"], 4)
+    if "sp_fisher" in cmp and "sp_chained_fisher" in cmp:
+        f0 = dict(series("sp_fisher"))[base_date]
+        cf0 = dict(series("sp_chained_fisher"))[base_date]
         cmp["substitution_bias_ratio"] = round(
-            (dict(series(im.FISHER))[list(sp_last)[-1]] / f0) /
-            (dict(series(im.CHAINED_FISHER))[list(sp_last)[-1]] / cf0), 4) \
-            if list(sp_last) else None
+            (dict(series("sp_fisher"))[list(sp_last)[-1]] / f0) /
+            (dict(series("sp_chained_fisher"))[list(sp_last)[-1]] / cf0), 4) \
+            if list(sp_last)[-1] in sp_last else None
     return cmp
 
 
@@ -163,10 +173,13 @@ def main() -> None:
     ap.add_argument("--start-year", type=int, default=2015,
                     help="cap history to start at this year (memory guard)")
     ap.add_argument("--chain-n", type=int, default=63)
+    ap.add_argument("--reconcile", action="store_true",
+                    help="compare stockmagic index_levels against stock_monitor "
+                         "fisher_indexes.parquet (validates the reimplementation)")
     args = ap.parse_args()
 
     res = run(args.data_dir, args.universe, args.base_level, args.chain_n,
-             args.start_year)
+             args.start_year, reconcile=args.reconcile)
     print(f"Universe={res['universe']} base={res['base_date']} "
           f"dates={res['n_dates']} "
           f"pit_snapshots={res['pit_snapshots']} "
@@ -191,6 +204,11 @@ def main() -> None:
     print("QUALITY SWEEP (quality_pass count as-of each year-end):")
     for y in res.get("quality_sweep_yearly", []):
         print(f"  {y['as_of']}  quality_pass={y['quality_pass']}")
+    if "reconcile_fisher" in res:
+        from src.analytics import reconcile as rec
+        print(rec.format_reconcile(res["reconcile_fisher"]))
+    elif "reconcile_fisher_error" in res:
+        print(f"RECONCILE SKIPPED: {res['reconcile_fisher_error']}")
 
 
 if __name__ == "__main__":

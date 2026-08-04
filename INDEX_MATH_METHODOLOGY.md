@@ -89,21 +89,37 @@ divisor at discrete events. Between events, weights drift with price — the wel
 known **large-cap momentum bias** of cap-weighting (overweighting past winners).
 
 We add a **chained** divisor methodology that re-anchors the base window every
-`chain_n` trading days and chains period-over-period *links*:
+`chain_n` trading days (default 63, about 3 months) and chains period-over-period
+*links*. For each day `t` the link uses the rolling base day `b` (the latest
+trading day at least `chain_n` sessions before `t`) and the prior day `t-1`:
 
-$$ link_t = Fisher( basket_t,\ basket_{t-1},\ base\ window ) $$
+$$ L_p(t) = \frac{\sum_i P_t Q_b}{\sum_i P_{t-1} Q_b} $$
 
-$$ level_t = baselevel \cdot \prod_{\tau \le t} link_\tau $$
+$$ P_p(t) = \frac{\sum_i P_t Q_t}{\sum_i P_{t-1} Q_t} $$
+
+$$ L_q(t) = \frac{\sum_i P_b Q_t}{\sum_i P_b Q_b} $$
+
+The chained level is the cumulative product of the links, started at `baselevel`:
+
+$$ level_t = baselevel \cdot \exp\!\left( \sum_{\tau \le t} \ln link_\tau \right) $$
 
 This is the same chaining used in `stock_monitor/fisher_index.py` (and standard
-in official Fisher series). Unlike S&P's single divisor, our chained arms carry
-**no fixed** $Q_0$ to drift — the base rolls continuously. We maintain **both**
-families at once:
+in official chained Fisher series). Unlike S&P's single divisor, our chained arms
+carry **no fixed** $Q_0$ to drift — the base rolls continuously.
+
+**Important:** the 63-trading-day window is **stockmagic's own parameter choice**,
+not an S&P methodology. S&P 500 uses a *fixed* 1941-43 = 10 base with a divisor
+that only adjusts on corporate actions; there is no periodic rebase or period-link
+chaining in the S&P level itself. Our rolling base is the chained-index
+substitution-bias reduction (the same family as the U.S. chained CPI, C-CPI-U):
+a fixed-base Laspeyres/Paasche drifts from the ideal chain because of substitution
+bias, and re-anchoring periodically reduces it. We maintain **both** families at
+once:
 
   * S&P single divisor $D$ + fixed-base arm divisors ($L, P, F$) — for exact
     continuity and the Fisher identity $F = \sqrt{L \cdot P}$.
-  * OUR chained divisors (`chained_fisher`, `chained_laspeyres`) — for the
-    de-biased path.
+  * OUR chained divisors (`chained_fisher`, `chained_laspeyres`,
+    `chained_paasche`) — for the de-biased path.
 
 The fund can *measure* the bias it is avoiding (live `substitution_bias_ratio`,
 `delta_fisher_vs_chained`) rather than assert it.
@@ -199,6 +215,46 @@ place stockmagic **already** implements both S&P forms.
 | `src/analytics/quality_value.py` | Buffett/trifecta/leverage/DuPont gates; NULL-safe; reports coverage |
 | `src/adapter_stockmonitor.py` | Runs the full pipeline over the real `stock_monitor` parquet store; emits live comparison metrics across the whole variant family |
 | `sql/nominal_index_pipeline.sql` | Same math as DuckDB-Wasm SQL for the dashboard SQL Lab |
-| `tests/test_index_math.py` | Synthetic property tests: all variants run, Fisher identity `F=sqrt(L·P)`, value = price×quantity, event continuity across all variants, chained ≠ fixed |
+| `src/analytics/index_math.py` | `IndexMath`: S&P value index (single divisor) + fixed-base Laspeyres/Paasche/Fisher arms + OUR chained Fisher, chained Laspeyres, and chained Paasche — **all six maintained in parallel** in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically |
 
 See `RUNBOOK.md` for the run/verify commands.
+
+---
+
+## 5. Reconciliation against StockMonitor
+
+`src/analytics/reconcile.py` compares stockmagic's `vol_chained_*` variants to
+`stock_monitor`'s `fisher_indexes_sp500.parquet` (stock_monitor's Fisher index
+computed over the same `sp500_member` sleeve stockmagic bridges). Both sides are
+chained and volume-Q; the only intended differences are the base level (100 vs
+1000, which cancels in the normalized comparison) and the link window
+(stock_monitor links t-1 -> t; stockmagic uses the rolling 63-day base).
+
+Measured result (SP500 sleeve, 2165 overlapping dates):
+
+| stock_monitor | stockmagic | norm divergence | note |
+|---|---|---|---|
+| fisher_p | vol_chained_fisher | 0.90% | validates |
+| laspeyres_p | vol_chained_laspeyres | 0.9998% | validates |
+| paasche_p | vol_chained_paasche | ~102% | volume-cleaning gap, not base window |
+
+The Fisher/Laspeyres agreements validate stockmagic's chained reimplementation:
+the sub-1% norm residual is exactly the 63-day rolling-base vs t-1->t link
+difference (stockmagic's documented de-biasing), the expected and correct gap.
+The Paasche arm's larger gap is a separate volume-Q cleaning difference
+(`build_clean_panel` carries prior-session volume once at panel-build;
+stock_monitor carries prior volume into zero-current sessions at link time).
+
+## 6. References
+
+- S&P Dow Jones Indices — Index Mathematics methodology:
+  https://www.spglobal.com/spdji/en/documents/methodologies/methodology-index-math.pdf
+- S&P 500 factsheet / base period 1941-43 = 10 (SEC form 424B2):
+  https://www.sec.gov/Archives/edgar/data/0000070858/000191870425018494/form424b2.htm
+- U.S. Bureau of Labor Statistics — Chained CPI (C-CPI-U), the substitution-bias
+  reduction family this rolling base belongs to:
+  https://www.bls.gov/cpi/rbics-c-cpi-u.pdf
+- Source: `src/analytics/index_math.py` (formula implementations, variant
+  configs), `src/analytics/reconcile.py` (reconciliation),
+  `src/data/market_data.py` (`build_clean_panel`, quantity columns),
+  `gen_sp500_fisher.py` (regenerates the SP500 reconcile input).

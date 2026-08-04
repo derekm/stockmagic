@@ -2,6 +2,10 @@
 
 ## Run the parallel-variant pipeline on real data
 ```bash
+# PREREQUISITE: the stock_monitor parquet files are Git-LFS pointers in a fresh
+# checkout. Pull them or the bridge fails with a clear "git lfs pull" message:
+cd stock_monitor && git lfs pull && cd ..
+
 . .venv/Scripts/activate
 PYTHONPATH=. python -m src.adapter_stockmonitor \
     --data-dir "C:/Users/derek/src/stockmagic/stock_monitor" \
@@ -12,6 +16,18 @@ Fisher, chained Fisher, chained Laspeyres) and prints **live comparison metrics*
 `substitution_bias_ratio`, `delta_fisher_vs_chained`, and per-variant cumulative
 return vs the S&P value benchmark. It also runs the PIT layer (below) and prints a
 year-end quality sweep.
+
+## Reconcile against stock_monitor's own Fisher index (validates the reimplementation)
+```bash
+PYTHONPATH=. python -m src.adapter_stockmonitor \
+    --data-dir "C:/Users/derek/src/stockmagic/stock_monitor" \
+    --universe SP500 --start-year 2015 --reconcile
+```
+Joins stockmagic `index_levels` to stock_monitor `fisher_indexes.parquet` on date
+and reports raw + re-based (`norm`) divergence per arm. The two are DIFFERENT
+indexes — stock_monitor uses base 100 + volume as quantity; stockmagic uses base
+1000 + shares*IWF. The reconciler's job is to *quantify* that divergence, not
+eliminate it. See FINDINGS.md / MISSING_LINKS.md for the analysis.
 
 ## Pipeline layers (in execution order)
 1. **Panel bridge** — `MarketDataStore.build_panel_from_parquet` registers the

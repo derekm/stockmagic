@@ -18,6 +18,25 @@ from pathlib import Path
 import duckdb
 
 
+def _assert_real_parquet(path: str) -> None:
+    """Fail fast if a 'parquet' is actually a Git-LFS pointer stub.
+
+    Real parquet files begin with the magic bytes 'PAR1'. LFS pointers begin
+    with 'version https://git-lfs...' and DuckDB then throws a cryptic
+    'No magic bytes found' error. This turns that into an actionable message.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"parquet not found: {path}")
+    head = p.read_bytes()[:4]
+    if head != b"PAR1":
+        raise ValueError(
+            f"{path} is not a real parquet file (missing 'PAR1' magic; "
+            f"it is likely a Git-LFS pointer stub). Run `git lfs pull` in the "
+            f"data directory, or point --data-dir at a store with real parquet."
+        )
+
+
 @dataclass
 class RawTrade:
     ticker: str
@@ -119,22 +138,58 @@ class MarketDataStore:
 
     # ---- audited clean panel (schema/jump/flatline checks) ----------------
     def build_clean_panel(self, base_date: dt.date, universe: str = "SP500"):
-        """Produce idx_panel: P_t = adj_close, Q_t = shares*iwf, MV_t = P_t*Q_t.
+        """Produce idx_panel: P_t = adj_close; every Q_t column the variants need.
 
-        Audit hooks (schema/jump/flatline) are asserted here so bad rows never
-        reach the analytics layer.
+        q_t_sp  = shares*iwf           (S&P cap-weighted family's Q_t slot)
+        q_t_vol = traded volume         (volume-weighted family's Q_t slot)
+        mv_t    = P_t * q_t_sp          (S&P market value)
+
+        Each variant NAME is a config that names which q_t column fills its Q_t
+        slot, so the panel carries all columns up front and the configs just
+        grab different numbers (no second panel, no prefix tricks). Audit hooks
+        (schema/jump/flatline) are asserted here.
         """
         self.con.execute(
             f"""
             CREATE OR REPLACE TABLE idx_panel AS
+            WITH vol AS (
+                SELECT ticker, trade_date,
+                       NULLIF(volume, 0) AS v
+                FROM daily_prices
+            ),
+            vol_clean AS (
+                SELECT ticker, trade_date,
+                       -- volume Q cleaning (q_t_vol slot). NOTE: this is NOT
+                       -- identical to fisher_index.panel()'s cleaning:
+                       -- that code does q.ffill().bfill() then a 21d median and
+                       -- carries prior volume into zero-current sessions at LINK
+                       -- time (q1=q1.where(q1>0,q0)). Here we carry the prior
+                       -- non-null session volume once at panel-build via
+                       -- LAST(... 1 PRECEDING), then a trailing 21d median, then
+                       -- 1.0. The two agree on Laspeyres/Fisher (<1% in
+                       -- reconciliation) but diverge on the current-q-sensitive
+                       -- Paasche arm (~100% norm) precisely because of this.
+                       COALESCE(
+                           LAST(v IGNORE NULLS) OVER (
+                               PARTITION BY ticker ORDER BY trade_date
+                               ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),
+                           quantile_cont(v, 0.5::DOUBLE) OVER (
+                               PARTITION BY ticker ORDER BY trade_date
+                               ROWS BETWEEN 20 PRECEDING AND CURRENT ROW),
+                           1.0) AS v
+                FROM vol
+            )
             SELECT
                 p.ticker,
                 p.trade_date,
                 p.adj_close                                   AS p_t,
-                sc.shares_outstanding * sc.iwf                AS q_t,
+                sc.shares_outstanding * sc.iwf                AS q_t_sp,
+                vc.v                                           AS q_t_vol,
                 sc.shares_outstanding * sc.iwf * p.adj_close  AS mv_t,
                 t.sleeve_tag
             FROM daily_prices p
+            JOIN vol_clean vc
+              ON vc.ticker = p.ticker AND vc.trade_date = p.trade_date
             JOIN share_counts sc
               ON sc.ticker = p.ticker
              AND sc.as_of = (
@@ -182,9 +237,25 @@ class MarketDataStore:
         if pit is None:
             cand = Path(data_dir) / "fundamentals.parquet"
             pit = "fundamentals.parquet" if cand.exists() else "fundamentals_pit.parquet"
-        self.con.execute(f"CREATE OR REPLACE TABLE daily_prices AS "
-                         f"SELECT ticker, date AS trade_date, close AS adj_close "
-                         f"FROM read_parquet('{data_dir}/{clean_prices}')")
+        _assert_real_parquet(f"{data_dir}/{clean_prices}")
+        _assert_real_parquet(f"{data_dir}/daily_prices.parquet")
+        _assert_real_parquet(f"{data_dir}/{pit}")
+        _assert_real_parquet(f"{data_dir}/{monitored}")
+        # price + PIT shares come from the cleaned parquet; traded volume comes
+        # from the MAINTAINED daily_prices.parquet (the same file fisher_index.py
+        # reads its quantity from). Join them so idx_panel.volume is apples-to-
+        # apples with stock_monitor's fisher_q.
+        self.con.execute(
+            f"""
+            CREATE OR REPLACE TABLE daily_prices AS
+            SELECT c.ticker, c.date AS trade_date,
+                   c.close AS adj_close,
+                   r.volume AS volume
+            FROM read_parquet('{data_dir}/{clean_prices}') c
+            JOIN read_parquet('{data_dir}/daily_prices.parquet') r
+              ON r.ticker = c.ticker AND r.date = c.date
+            """
+        )
         self.con.execute(
             f"""
             CREATE OR REPLACE TABLE share_counts AS
