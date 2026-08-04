@@ -97,7 +97,7 @@ $$ level_t = baselevel \cdot \prod_{\tau \le t} link_\tau $$
 
 This is the same chaining used in `stock_monitor/fisher_index.py` (and standard
 in official Fisher series). Unlike S&P's single divisor, our chained arms carry
-*no fixed $Q_0$* to drift — the base rolls continuously. We maintain **both**
+**no fixed** $Q_0$ to drift — the base rolls continuously. We maintain **both**
 families at once:
 
   * S&P single divisor $D$ + fixed-base arm divisors ($L, P, F$) — for exact
@@ -153,7 +153,7 @@ Honest two-way comparison against the S&P DJI *Index Mathematics* methodology
 | All constructions at once (compare/blend/stress) | Rebuild per index | Yes — one `run_all`, long `index_levels` table | Our addition |
 
 **Net:** S&P gives us a correct, industry-standard *continuity primitive* (divisor
-+ float adjustment + capping). We wrap it with a Fisher decomposition and chaining
+**+** float adjustment **+** capping). We wrap it with a Fisher decomposition and chaining
 that turn a single cap-weighted number into a multi-variant, de-biased signal set —
 while the capping, equal-weight, price-weight, multi-day-rebalance, and exercised
 total-return paths remain S&P features we have **not** reimplemented in this module.
@@ -182,11 +182,11 @@ remaining sections by `src/analytics/index_math.py` (and the broader repo):
 | EOM Global Fundamental Data | P/E, P/B, ROE, yields via AWF/IWF | Partially covered by `quality_value.py` (PIT ROE / DuPont / trifecta), not the S&P EOM ratio set |
 
 **Net:** stockmagic's scope is the **index-number core** — divisor continuity + Fisher
-decomposition + chaining + PIT quality gate. The sections above are either deliberate
-out-of-scope (derivative / leverage / fee families), single-currency simplifications
-(FX), or straightforward gaps to fill later (capped-return, dividend-points, turnover).
-The DCR/divisor equivalence is the one place stockmagic **already** implements both S&P
-forms.
+decomposition + chaining + PIT quality gate. The sections above fall into three
+buckets: out-of-scope by design (the derivative / leverage / fee families),
+single-currency simplifications (FX), and concrete gaps to fill later
+(capped-return, dividend-points, turnover). The DCR/divisor equivalence is the one
+place stockmagic **already** implements both S&P forms.
 
 ---
 
