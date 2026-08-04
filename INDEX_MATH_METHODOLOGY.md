@@ -14,11 +14,13 @@ capital loss.
 ### 1.1 The divisor as a continuity engine
 S&P defines a cap-weighted index as
 
-    Index_t = Σ (P_i,t · Q_i) / D_t                                  (1)
+$$
+\text{Index}_t = \frac{\sum_i P_{i,t} \, Q_i}{D_t} \tag{1}
+$$
 
 and explicitly notes this is a *modification of a Laspeyres index*: the
-Laspeyres base-period quantities Q_0 are replaced by current quantities Q_1, and
-the denominator Σ P_0 Q_0 is replaced by a **divisor** D that both encodes the
+Laspeyres base-period quantities $Q_0$ are replaced by current quantities $Q_1$, and
+the denominator $\sum_i P_0 Q_0$ is replaced by a **divisor** $D$ that both encodes the
 initial market value and fixes the base level (e.g., 1000).
 
 We adopt this verbatim. The divisor is the single mechanism that lets the index
@@ -29,18 +31,25 @@ benchmark path, otherwise "outperformance" would be an artifact of our own
 mechanics.
 
 ### 1.2 Multiplicative divisor adjustment (S&P eq. 6)
-On an event that changes market value by factor k at constant prices,
+On an event that changes market value by factor $k$ at constant prices,
 
-    D_new = D_old · k                                            (6)
+$$
+D_{\text{new}} = D_{\text{old}} \cdot k \tag{6}
+$$
 
 keeps the level flat across the event. Our `IndexMath.apply_event` implements
-exactly this. S&P also offers an additive form (eq. 7, `D_new = D_old +
-CMV/IndexLevel`); we use the multiplicative form because it composes cleanly
-with chained Fisher arms (see §2.2).
+exactly this. S&P also offers an additive form (eq. 7),
+
+$$
+D_{\text{new}} = D_{\text{old}} + \frac{\text{CMV}}{\text{IndexLevel}} \tag{7}
+$$
+
+where $\text{CMV}$ is the change in market value; we use the multiplicative
+form because it composes cleanly with chained Fisher arms (see §2.2).
 
 ### 1.3 Total-return extension by dividend points
 S&P builds a total-return index by converting daily dividends to *index points*
-via `IndexDividend = TotalDailyDividend / D`. We borrow the same idea: any
+via $\text{IndexDividend} = \text{TotalDailyDividend} / D$. We borrow the same idea: any
 income stream (dividends, repo, carry) is expressed in divisor units so it
 scales with the same continuity logic. (Wired but not yet exercised in the
 current pipeline; the hook `divisor` is the shared denominator.)
@@ -56,11 +65,15 @@ has no Paasche arm. We compute the **entire index-number family at once** on the
 same basket, so they can be compared, blended, and stress-tested without
 rebuilding the pipeline:
 
-    L_p = Σ P_t Q_0 / Σ P_0 Q_0        (Laspeyres price, base shares)
-    P_p = Σ P_t Q_t / Σ P_0 Q_t        (Paasche price, current shares)
-    F   = √(L_p · P_p)                 (Fisher price = ideal geometric mean)
-    V_t = Σ P_t Q_t / D_t              (== S&P value index, by construction)
-    Q_F = V_t / F                      (derived Fisher quantity; continuity inherited)
+$$
+\begin{aligned}
+L_p &= \frac{\sum_i P_t Q_0}{\sum_i P_0 Q_0} && \text{(Laspeyres price, base shares)} \\
+P_p &= \frac{\sum_i P_t Q_t}{\sum_i P_0 Q_t} && \text{(Paasche price, current shares)} \\
+F   &= \sqrt{L_p \cdot P_p}              && \text{(Fisher price = ideal geometric mean)} \\
+V_t &= \frac{\sum_i P_t Q_t}{D_t}        && \text{(= S\&P value index, by construction)} \\
+Q_F &= \frac{V_t}{F}                     && \text{(derived Fisher quantity; continuity inherited)}
+\end{aligned}
+$$
 
 Every variant is stored in one long `index_levels` table keyed by `variant`, and
 a `divisors` registry tracks each variant's divisor. This is the structural
@@ -72,7 +85,9 @@ between them as a live signal (e.g. L−P spread = the substitution/drift bias).
 geometrically into a *valuation* component (`ret_price`) and a *capital-structure*
 component (`ret_qty`):
 
-    ret_total = ret_price · ret_qty
+$$
+\text{ret}_{\text{total}} = \text{ret}_{\text{price}} \cdot \text{ret}_{\text{qty}}
+$$
 
 `ret_qty` isolates share issuance / buyback / float drift — information a
 cap-weighted S&P path hides. Fisher also satisfies the time-reversal and
@@ -86,17 +101,21 @@ known **large-cap momentum bias** of cap-weighting (overweighting past winners).
 We add a **chained** divisor methodology that re-anchors the base window every
 `chain_n` trading days and chains period-over-period *links*:
 
-    link_t = Fisher( basket_t ; basket_{t-1} , base_window )
-    level_t = base_level · Π link_τ  (τ ≤ t)
+$$
+\begin{aligned}
+\text{link}_t &= \text{Fisher}\bigl(\text{basket}_t ;\, \text{basket}_{t-1},\, \text{base\_window}\bigr) \\
+\text{level}_t &= \text{base\_level} \cdot \prod_{\tau \le t} \text{link}_\tau
+\end{aligned}
+$$
 
 This is the same chaining used in `stock_monitor/fisher_index.py` (and standard
 in official Fisher series). Unlike S&P's single divisor, our chained arms carry
-*no fixed Q_0* to drift — the base rolls continuously. We maintain **both**
+*no fixed $Q_0$* to drift — the base rolls continuously. We maintain **both**
 families at once:
 
-  * S&P single divisor D + fixed-base arm divisors (L, P, F) — for exact
-    continuity and the Fisher identity `F = √(L·P)`.
-  * OUR chained divisors (chained_fisher, chained_laspeyres) — for the
+  * S&P single divisor $D$ + fixed-base arm divisors ($L, P, F$) — for exact
+    continuity and the Fisher identity $F = \sqrt{L \cdot P}$.
+  * OUR chained divisors (`chained_fisher`, `chained_laspeyres`) — for the
     de-biased path.
 
 The fund can *measure* the bias it is avoiding (live `substitution_bias_ratio`,
@@ -105,8 +124,8 @@ The fund can *measure* the bias it is avoiding (live `substitution_bias_ratio`,
 ### 2.3 Divisor events maintained across ALL variants atomically
 A non-market event (add/delete, corp action) is absorbed by re-scaling every
 maintained divisor at once in `apply_event`:
-  * S&P divisor D → D·k (S&P eq. 6), value index flat.
-  * fixed arms divisors (L, P, F) → ·k, symmetry preserved.
+  * S&P divisor $D \to D \cdot k$ (S&P eq. 6), value index flat.
+  * fixed arms divisors ($L, P, F$) $\to \cdot k$, symmetry preserved.
   * chained arms → post-event levels rescaled by k (the rolling base already
     makes the *path* event-invariant, so this is continuity only).
 
@@ -125,21 +144,32 @@ quality is auditable.
 
 ## 3. Superior / complementary summary
 
-|| Concern | S&P alone | Our addition | Why better for the fund |
-|---|---|---|---|
-| Continuity across rebalances | ✓ single divisor | same divisor + parallel arm divisors | Non-negotiable; adopted as-is, PLUS all arms co-maintained |
-| Price vs quantity separation | ✗ single number | full L/P/Fisher family in parallel | Isolates valuation from capital-structure drift → Fisher quantity sleeve; L−P spread is a live bias gauge |
-| Substitution / momentum bias | ✗ fixed base drifts | our chained (rolling-base) divisor | Avoids overweighting past winners; measurable live vs fixed baseline |
-| Ideal index properties | ✗ L/P fail tests | Fisher (time/factor reversal) | Theoretically grounded decomposition, co-stored with S&P for audit |
-| Quality screen | ✗ out of scope | PIT Buffett/trifecta/leverage | Dual-pass first leg, no look-ahead |
-| Non-market event across the family | ✗ chaining can't absorb alone | one `apply_event` re-scales S&P + all arm + chained divisors | Atomic continuity across the whole variant set |
-| All constructions at once | ✗ must rebuild | one `run_all`, `index_levels` long table | Compare/blend/stress without re-piping |
+Honest two-way comparison against the S&P DJI *Index Mathematics* methodology
+(April 2026). "S&P" = what the S&P methodology defines; "stockmagic" = what
+`src/analytics/index_math.py` actually implements today.
 
-**Net:** S&P gives us a correct, industry-standard *continuity primitive*. We
-wrap it with a Fisher decomposition and chaining that turn a single cap-weighted
-number into a multi-sleeve, regime-aware signal set — directly serving the
-fund's design intent: size up only when quality/value, momentum, liquidity, and
-regime align, and rotate risk when stress and leadership change.
+| Concern | S&P DJI methodology | stockmagic today | Status / note |
+|---|---|---|---|
+| Continuity across rebalances (single divisor) | Yes — `D` rescaled on non-market events (eq. 6 / eq. 7) | Yes — `value_index` + `apply_event` use eq. 6 verbatim | Adopted as-is |
+| Full Laspeyres / Paasche / Fisher family in parallel | No — single Laspeyres-derived number | Yes — 6 variants co-maintained in `index_levels` | Our addition |
+| Price vs quantity separation (`ret_qty` isolation) | No — single number hides capital-structure drift | Yes — `decompose()` splits `ret_total = ret_price · ret_qty` | Our addition |
+| Substitution / momentum bias | Acknowledged; mitigated by capping, not chaining | Yes — chained (rolling-base) arms re-anchor every `chain_n` days | Our addition; measurable vs fixed |
+| Ideal index properties (time/factor reversal) | Laspeyres & Paasche each fail | Yes — Fisher `F = √(L·P)` satisfies both | Our addition |
+| Atomic event across the whole variant set | N/A per single index | Yes — one `apply_event` re-scales S&P + fixed arms + chained | Our addition |
+| Float adjustment (IWF) | Yes — `Q_i = IWF_i · shares_i` (eq. 3) | Yes — `Q_t = shares · IWF` in `build_clean_panel` | Adopted as-is |
+| Capped / concentration limits (AWF) | Yes — single-company + group capping, iterative redistribution | No — all 6 variants unconstrained | **Gap** |
+| Equal-weight index (AWF = `Z / (N · floatadj MV)`) | Yes — periodic rebalance | No — not built in `index_math` (equal-weight lives in `stock_monitor/build_*.py`) | **Gap** (out of this module) |
+| Price-weighted index | Yes — divisor adjusts on corp actions | No | **Gap** |
+| Total-return (dividend points) | Yes — `IndexDividend = TotalDailyDividend / D` | Wired (divisor hook) but **not exercised** | **Partial** |
+| Multi-day (smoothed) rebalancing | Yes — glide-path weights | No | **Gap** |
+| Point-in-time quality/value gate | Out of scope (pure price/qty) | Yes — `quality_value.py`, PIT, no look-ahead | Our addition |
+| All constructions at once (compare/blend/stress) | Rebuild per index | Yes — one `run_all`, long `index_levels` table | Our addition |
+
+**Net:** S&P gives us a correct, industry-standard *continuity primitive* (divisor
++ float adjustment + capping). We wrap it with a Fisher decomposition and chaining
+that turn a single cap-weighted number into a multi-variant, de-biased signal set —
+while the capping, equal-weight, price-weight, multi-day-rebalance, and exercised
+total-return paths remain S&P features we have **not** reimplemented in this module.
 
 ---
 
