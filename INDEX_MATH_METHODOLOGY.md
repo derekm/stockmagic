@@ -103,8 +103,8 @@ We add a **chained** divisor methodology that re-anchors the base window every
 
 $$
 \begin{aligned}
-\text{link}_t &= \text{Fisher}\bigl(\text{basket}_t ;\, \text{basket}_{t-1},\, \text{base\_window}\bigr) \\
-\text{level}_t &= \text{base\_level} \cdot \prod_{\tau \le t} \text{link}_\tau
+\text{link}_t &= \text{Fisher}\bigl(\text{basket}_t ;\, \text{basket}_{t-1},\, \text{base window}\bigr) \\
+\text{level}_t &= \text{base level} \cdot \prod_{\tau \le t} \text{link}_\tau
 \end{aligned}
 $$
 
