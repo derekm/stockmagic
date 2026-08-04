@@ -3,6 +3,12 @@
 StockMonitor suite — market-data capture + S&P DJI index mathematics with a
 chained Fisher price/quantity decomposition and quality/value dual-pass gates.
 
+> **Repo split (2026-08-03):** the original `stock_monitor/` package (portfolio
+> tracking, forecasting, Granite TTM backfill, analytics dashboard) now lives
+> in its **own repository** at `github.com/derekm/stock_monitor`. This repo
+> (`stockmagic`) holds the core S&P index mathematics, Fisher decomposition, and
+> quality/value gates. See the `stock_monitor` repo for the full toolkit.
+
 ## What's here
 
 ```
