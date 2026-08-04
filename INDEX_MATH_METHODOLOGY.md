@@ -14,9 +14,7 @@ capital loss.
 ### 1.1 The divisor as a continuity engine
 S&P defines a cap-weighted index as
 
-$$
-\text{Index}_t = \frac{\sum_i P_{i,t} \, Q_i}{D_t} \tag{1}
-$$
+$$ Index_t = \frac{\sum_i P_{i,t} \, Q_i}{D_t} $$
 
 and explicitly notes this is a *modification of a Laspeyres index*: the
 Laspeyres base-period quantities $Q_0$ are replaced by current quantities $Q_1$, and
@@ -33,23 +31,19 @@ mechanics.
 ### 1.2 Multiplicative divisor adjustment (S&P eq. 6)
 On an event that changes market value by factor $k$ at constant prices,
 
-$$
-D_{\text{new}} = D_{\text{old}} \cdot k \tag{6}
-$$
+$$ D_{new} = D_{old} \cdot k $$
 
 keeps the level flat across the event. Our `IndexMath.apply_event` implements
 exactly this. S&P also offers an additive form (eq. 7),
 
-$$
-D_{\text{new}} = D_{\text{old}} + \frac{\text{CMV}}{\text{IndexLevel}} \tag{7}
-$$
+$$ D_{new} = D_{old} + \frac{CMV}{IndexLevel} $$
 
-where $\text{CMV}$ is the change in market value; we use the multiplicative
+where $CMV$ is the change in market value; we use the multiplicative
 form because it composes cleanly with chained Fisher arms (see §2.2).
 
 ### 1.3 Total-return extension by dividend points
 S&P builds a total-return index by converting daily dividends to *index points*
-via $\text{IndexDividend} = \text{TotalDailyDividend} / D$. We borrow the same idea: any
+via $IndexDividend = TotalDailyDividend / D$. We borrow the same idea: any
 income stream (dividends, repo, carry) is expressed in divisor units so it
 scales with the same continuity logic. (Wired but not yet exercised in the
 current pipeline; the hook `divisor` is the shared denominator.)
@@ -65,15 +59,13 @@ has no Paasche arm. We compute the **entire index-number family at once** on the
 same basket, so they can be compared, blended, and stress-tested without
 rebuilding the pipeline:
 
-$$
-\begin{aligned}
-L_p &= \frac{\sum_i P_t Q_0}{\sum_i P_0 Q_0} && \text{(Laspeyres price, base shares)} \\
-P_p &= \frac{\sum_i P_t Q_t}{\sum_i P_0 Q_t} && \text{(Paasche price, current shares)} \\
-F   &= \sqrt{L_p \cdot P_p}              && \text{(Fisher price = ideal geometric mean)} \\
-V_t &= \frac{\sum_i P_t Q_t}{D_t}        && \text{(= S\&P value index, by construction)} \\
-Q_F &= \frac{V_t}{F}                     && \text{(derived Fisher quantity; continuity inherited)}
-\end{aligned}
-$$
+$$ L_p = \frac{\sum_i P_t Q_0}{\sum_i P_0 Q_0},\quad P_p = \frac{\sum_i P_t Q_t}{\sum_i P_0 Q_t} $$
+
+(Laspeyres price, base shares; Paasche price, current shares)
+
+$$ F = \sqrt{L_p \cdot P_p},\quad V_t = \frac{\sum_i P_t Q_t}{D_t},\quad Q_F = \frac{V_t}{F} $$
+
+(Fisher price = ideal geometric mean; $V_t$ = S&P value index by construction; $Q_F$ = derived Fisher quantity, continuity inherited)
 
 Every variant is stored in one long `index_levels` table keyed by `variant`, and
 a `divisors` registry tracks each variant's divisor. This is the structural
@@ -85,28 +77,23 @@ between them as a live signal (e.g. L−P spread = the substitution/drift bias).
 geometrically into a *valuation* component (`ret_price`) and a *capital-structure*
 component (`ret_qty`):
 
-$$
-\text{ret}_{\text{total}} = \text{ret}_{\text{price}} \cdot \text{ret}_{\text{qty}}
-$$
+$$ ret_{total} = ret_{price} \cdot ret_{qty} $$
 
 `ret_qty` isolates share issuance / buyback / float drift — information a
 cap-weighted S&P path hides. Fisher also satisfies the time-reversal and
 factor-reversal tests that Laspeyres and Paasche each fail individually.
 
 ### 2.2 Our parallel divisor methodology: chained (rolling-base) re-anchoring
-S&P keeps a *fixed* base (Q_0 from the inception date) and only re-scales via the
+S&P keeps a *fixed* base ($Q_0$ from the inception date) and only re-scales via the
 divisor at discrete events. Between events, weights drift with price — the well
 known **large-cap momentum bias** of cap-weighting (overweighting past winners).
 
 We add a **chained** divisor methodology that re-anchors the base window every
 `chain_n` trading days and chains period-over-period *links*:
 
-$$
-\begin{aligned}
-\text{link}_t &= \text{Fisher}\bigl(\text{basket}_t ;\, \text{basket}_{t-1},\, \text{base window}\bigr) \\
-\text{level}_t &= \text{base level} \cdot \prod_{\tau \le t} \text{link}_\tau
-\end{aligned}
-$$
+$$ link_t = Fisher( basket_t,\ basket_{t-1},\ base\ window ) $$
+
+$$ level_t = baselevel \cdot \prod_{\tau \le t} link_\tau $$
 
 This is the same chaining used in `stock_monitor/fisher_index.py` (and standard
 in official Fisher series). Unlike S&P's single divisor, our chained arms carry
@@ -154,7 +141,7 @@ Honest two-way comparison against the S&P DJI *Index Mathematics* methodology
 | Full Laspeyres / Paasche / Fisher family in parallel | No — single Laspeyres-derived number | Yes — 6 variants co-maintained in `index_levels` | Our addition |
 | Price vs quantity separation (`ret_qty` isolation) | No — single number hides capital-structure drift | Yes — `decompose()` splits `ret_total = ret_price · ret_qty` | Our addition |
 | Substitution / momentum bias | Acknowledged; mitigated by capping, not chaining | Yes — chained (rolling-base) arms re-anchor every `chain_n` days | Our addition; measurable vs fixed |
-| Ideal index properties (time/factor reversal) | Laspeyres & Paasche each fail | Yes — Fisher `F = √(L·P)` satisfies both | Our addition |
+| Ideal index properties (time/factor reversal) | Laspeyres & Paasche each fail | Yes — Fisher `F = sqrt(L·P)` satisfies both | Our addition |
 | Atomic event across the whole variant set | N/A per single index | Yes — one `apply_event` re-scales S&P + fixed arms + chained | Our addition |
 | Float adjustment (IWF) | Yes — `Q_i = IWF_i · shares_i` (eq. 3) | Yes — `Q_t = shares · IWF` in `build_clean_panel` | Adopted as-is |
 | Capped / concentration limits (AWF) | Yes — single-company + group capping, iterative redistribution | No — all 6 variants unconstrained | **Gap** |
@@ -171,6 +158,36 @@ that turn a single cap-weighted number into a multi-variant, de-biased signal se
 while the capping, equal-weight, price-weight, multi-day-rebalance, and exercised
 total-return paths remain S&P features we have **not** reimplemented in this module.
 
+### 3.1 Extended S&P sections — coverage status
+
+The S&P methodology covers more than the core divisor/Fisher math. Coverage of the
+remaining sections by `src/analytics/index_math.py` (and the broader repo):
+
+| S&P section | What it defines | stockmagic status |
+|---|---|---|
+| DCR vs Divisor equivalence | Proves the divisor-based level and DCR (chain period returns) give identical same-currency series | **Both exercised** — `value_index` is the divisor form; the chained arms are exactly the DCR form (period links multiplied). They must agree on a single-currency basket — a built-in cross-check |
+| Capped (weight) indices — AWF | `AWF_i = CW_i / W_i`, iterative single-company + group capping | Gap (see §3 table) |
+| Capped **return** indices | Return since last rebalance capped at a preset level | Gap (distinct from weight capping) |
+| Equal-weight / price-weight | AWF / price-only weighting | Gap (equal-weight lives in `stock_monitor/build_*.py`) |
+| Total-return (dividend points) | `IndexDividend = TotalDailyDividend / D` | Wired (divisor hook), not exercised |
+| **Dividend Points Indices** | Cumulative running total of constituent dividends (reset quarterly/annual) | Gap — no dividend-points series emitted |
+| **Index Turnover** | One-way turnover from events/rebalances, `sum | w_CLS - w_ADJ |` | Gap — not computed |
+| Alternative pricing (SOQ / VWAP / TWAP / Fair Value) | Open / VWAP / TWAP prices instead of close | Gap — `P_t = adjclose` only; data-source choice, not a math gap |
+| Currency-hedged / Quanto / PL-adjusted | FX forward hedging, quanto, price-level translation | Out of scope (single-currency US basket) |
+| Risk Control (vol targeting), 2.0, min-var | Dynamic leverage from realized vol | Out of scope |
+| Weighted-Return (index-of-indices) | Combine component index returns | Out of scope |
+| Leveraged / Inverse | `K×` return `±` borrowing/lending | Out of scope |
+| Fee / Decrement / Increment | Synthetic fee/dividend as index-point drag | Out of scope |
+| Negative/Zero levels | Floor at zero for leveraged/inverse | N/A (no leverage) |
+| EOM Global Fundamental Data | P/E, P/B, ROE, yields via AWF/IWF | Partially covered by `quality_value.py` (PIT ROE / DuPont / trifecta), not the S&P EOM ratio set |
+
+**Net:** stockmagic's scope is the **index-number core** — divisor continuity + Fisher
+decomposition + chaining + PIT quality gate. The sections above are either deliberate
+out-of-scope (derivative / leverage / fee families), single-currency simplifications
+(FX), or straightforward gaps to fill later (capped-return, dividend-points, turnover).
+The DCR/divisor equivalence is the one place stockmagic **already** implements both S&P
+forms.
+
 ---
 
 ## 4. Pipeline layout (this repo)
@@ -182,6 +199,6 @@ total-return paths remain S&P features we have **not** reimplemented in this mod
 | `src/analytics/quality_value.py` | Buffett/trifecta/leverage/DuPont gates; NULL-safe; reports coverage |
 | `src/adapter_stockmonitor.py` | Runs the full pipeline over the real `stock_monitor` parquet store; emits live comparison metrics across the whole variant family |
 | `sql/nominal_index_pipeline.sql` | Same math as DuckDB-Wasm SQL for the dashboard SQL Lab |
-| `tests/test_index_math.py` | Synthetic property tests: all variants run, Fisher identity `F=√(L·P)`, value = price×quantity, event continuity across all variants, chained ≠ fixed |
+| `tests/test_index_math.py` | Synthetic property tests: all variants run, Fisher identity `F=sqrt(L·P)`, value = price×quantity, event continuity across all variants, chained ≠ fixed |
 
 See `RUNBOOK.md` for the run/verify commands.
