@@ -258,3 +258,10 @@ stock_monitor carries prior volume into zero-current sessions at link time).
   configs), `src/analytics/reconcile.py` (reconciliation),
   `src/data/market_data.py` (`build_clean_panel`, quantity columns),
   `gen_sp500_fisher.py` (regenerates the SP500 reconcile input).
+
+## See also
+
+- `README.md` — repo overview, module map, and the full doc index.
+- `FINDINGS.md` — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
+- `MISSING_LINKS.md` — the original missing-links analysis.
+- `RUNBOOK.md` — how to run the pipeline on real data.

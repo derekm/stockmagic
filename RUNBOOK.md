@@ -84,3 +84,10 @@ atomically (S&P eq. 6 + arm ·k + chained post-event rescale).
   those automatically when present.
 - Capping / AWF concentration limits are not implemented (see
   `INDEX_MATH_METHODOLOGY.md` §3).
+
+## See also
+
+- `README.md` — repo overview, module map, doc index, and index-math formulas.
+- `INDEX_MATH_METHODOLOGY.md` — full methodology + reconciliation table + references.
+- `FINDINGS.md` — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
+- `MISSING_LINKS.md` — the original missing-links analysis.

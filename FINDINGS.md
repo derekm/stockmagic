@@ -100,3 +100,10 @@ The harness lives in `stock_monitor/pass5.py` (not yet committed — should be, 
 the honest eval isn't lost and pass-4's leakage isn't repeated). Caveats: 6000
 steps may still be undertrained for some configs; one 10y test block; a rolling
 multi-origin test would firm up the direction edge.
+
+## See also
+
+- `README.md` — repo overview, module map, doc index, and index-math formulas.
+- `INDEX_MATH_METHODOLOGY.md` — full methodology + reconciliation table + references.
+- `MISSING_LINKS.md` — the original missing-links analysis.
+- `RUNBOOK.md` — how to run the pipeline on real data.

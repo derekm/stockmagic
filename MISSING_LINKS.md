@@ -78,3 +78,10 @@ columns and raises with the missing ones named.
   divergence, documented.
 - #3-#7: identified; #3/#4/#5 need a data emit or a second run; #6/#7 are
   structural hygiene. FINDINGS.md tracks the live-run evidence.
+
+## See also
+
+- `README.md` — repo overview, module map, doc index, and index-math formulas.
+- `INDEX_MATH_METHODOLOGY.md` — full methodology + reconciliation table + references.
+- `FINDINGS.md` — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
+- `RUNBOOK.md` — how to run the pipeline on real data.
