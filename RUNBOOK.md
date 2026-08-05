@@ -11,7 +11,7 @@ PYTHONPATH=. python -m src.adapter_stockmonitor \
     --data-dir "C:/Users/derek/src/stockmagic/stock_monitor" \
     --universe SP500 --start-year 2015
 ```
-Computes SIX index constructions at once (S&P value, Laspeyres, Paasche,
+Computes SEVEN index constructions at once (S&P value, Laspeyres, Paasche,
 Fisher, chained Fisher, chained Laspeyres) and prints **live comparison metrics**:
 `substitution_bias_ratio`, `delta_fisher_vs_chained`, and per-variant cumulative
 return vs the S&P value benchmark. It also runs the PIT layer (below) and prints a

@@ -9,7 +9,7 @@ source reads + live runs (see FINDINGS.md).
 `src/adapter_stockmonitor.py` reads four parquet files from `../stock_monitor`:
 `daily_prices_clean.parquet`, `fundamentals.parquet` (or `fundamentals_pit.parquet`),
 `monitored_stocks.parquet`. It builds `idx_panel` (`P_t = close`,
-`Q_t = shares*IWF`), runs the six-variant index math, the PIT backfill + quality
+`Q_t = shares*IWF`), runs the 19-variant index math (7 constructions across `sp_*`/`vol_*`/`trad_*` families), the PIT backfill + quality
 gate, and a family comparison. `src/analytics/reconcile.py` (optional, `--reconcile`)
 compares stockmagic's `index_levels` against stock_monitor's `fisher_indexes.parquet`.
 

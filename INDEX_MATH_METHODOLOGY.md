@@ -211,11 +211,10 @@ place stockmagic **already** implements both S&P forms.
 | File | Role |
 |---|---|
 | `src/data/market_data.py` | Capture (trades, prices, shares, sleeves) + PIT fundamentals; audited clean panel; `build_panel_from_parquet` bridges real `stock_monitor` parquet |
-| `src/analytics/index_math.py` | `IndexMath`: S&P value index (single divisor) + fixed-base Laspeyres/Paasche/Fisher arms + OUR chained Fisher & chained Laspeyres — **all six maintained in parallel** in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically |
 | `src/analytics/quality_value.py` | Buffett/trifecta/leverage/DuPont gates; NULL-safe; reports coverage |
 | `src/adapter_stockmonitor.py` | Runs the full pipeline over the real `stock_monitor` parquet store; emits live comparison metrics across the whole variant family |
 | `sql/nominal_index_pipeline.sql` | Same math as DuckDB-Wasm SQL for the dashboard SQL Lab |
-| `src/analytics/index_math.py` | `IndexMath`: S&P value index (single divisor) + fixed-base Laspeyres/Paasche/Fisher arms + OUR chained Fisher, chained Laspeyres, and chained Paasche — **all six maintained in parallel** in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically |
+| `src/analytics/index_math.py` | `IndexMath`: 7 index constructions (value, Laspeyres, Paasche, Fisher + chained Laspeyres/Paasche/Fisher) composed into 19 variant configs across `sp_*` (cap-weighted), `vol_*` (volume-Q), `trad_*` (traditional) families — all maintained in parallel in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically |
 
 See `RUNBOOK.md` for the run/verify commands.
 

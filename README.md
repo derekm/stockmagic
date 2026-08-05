@@ -15,7 +15,7 @@ chained Fisher price/quantity decomposition and quality/value dual-pass gates.
 |---|---|
 | `src/data/market_data.py` | Raw feed capture (trades, prices, shares, sleeves) + audited clean panel (schema/jump/flatline); bridges real stock_monitor parquet via `build_panel_from_parquet`. |
 | `src/data/pit_snapshots.py` | Point-in-time snapshot timeseries + backfill (daily forward-fill by `as_of <= date`); re-derives `market_cap` / `mktcap_to_assets` from the price panel; `qualify_as_of` builds the quality gate as of any historical date. |
-| `src/analytics/index_math.py` | S&P divisor value index + fixed-base Laspeyres/Paasche/Fisher arms + OUR chained Fisher, chained Laspeyres, and chained Paasche. All six maintained in parallel in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically. |
+| `src/analytics/index_math.py` | 7 index constructions (value, Laspeyres, Paasche, Fisher + chained Laspeyres/Paasche/Fisher) composed into 19 variant configs across `sp_*` (cap-weighted), `vol_*` (volume-Q), `trad_*` (traditional) families — all maintained in parallel in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically. |
 | `src/analytics/reconcile.py` | Reconciles stockmagic's `vol_chained_*` variants against `stock_monitor`'s `fisher_indexes_sp500.parquet` (same `sp500_member` sleeve) — validates the reimplementation; see `FINDINGS.md`. |
 | `src/adapter_stockmonitor.py` | Runs the full pipeline over the real stock_monitor parquet store; emits live comparison metrics (`substitution_bias_ratio`, `delta_fisher_vs_chained`) and a year-end quality sweep across the whole variant family. |
 | `sql/nominal_index_pipeline.sql` | Same math as a DuckDB-Wasm SQL script for SQL Lab. |
@@ -33,9 +33,22 @@ chained Fisher price/quantity decomposition and quality/value dual-pass gates.
 
 ## Index math at a glance
 
-Six constructions on one `idx_panel` basket (`p_t` = price, `q_t` = quantity:
+Seven constructions on one `idx_panel` basket (`p_t` = price, `q_t` = quantity:
 `q_t_sp = shares*IWF` for the cap-weighted family, `q_t_vol` = traded volume
 for the `vol_*` family).
+
+The 7 constructions are composed into **19 variant configs** across 3 quantity-source
+families (each family reuses the same 7 constructions on a different `q_t`):
+
+| Family | `q_t` source | # variants | Variants |
+|---|---|---|---|
+| `sp_*` | `q_t_sp = shares*IWF` (cap-weighted) | 6 | value, laspeyres, paasche, fisher, chained_laspeyres, chained_fisher |
+| `vol_*` | `q_t_vol` (cleaned traded volume) | 7 | value, laspeyres, paasche, fisher, chained_laspeyres, **chained_paasche**, chained_fisher |
+| `trad_*` | `q_t_sp` (traditional method) | 6 | value, laspeyres, paasche, fisher, chained_laspeyres, chained_fisher |
+
+> `chained_paasche` exists only as `vol_chained_paasche` (added to match
+> `stock_monitor`'s volume-weighted Paasche); the `sp_*`/`trad_*` families omit it
+> because a cap-weighted Paasche adds little over the Fisher. See `FINDINGS.md`.
 
 **S&P value (single divisor):** a float-adjusted market-cap aggregate normalized
 so the base day equals `base_level`.
@@ -93,7 +106,7 @@ python tests/test_index_math.py
 python tests/test_pit_snapshots.py
 ```
 
-The full six-variant pipeline over real data is driven by the adapter — see
+The full 19-variant pipeline over real data is driven by the adapter — see
 `RUNBOOK.md` for the run/verify commands and the `git lfs pull` step. For the
 cross-repo reconciliation results and the Granite-TTM out-of-sample finding, see
 `FINDINGS.md`.

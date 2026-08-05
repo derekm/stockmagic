@@ -1,6 +1,6 @@
 """Index mathematics — parallel multi-variant divisor framework.
 
-We maintain SIX index constructions side by side, every one on the same
+We maintain SEVEN index constructions side by side, every one on the same
 `idx_panel` basket, so they can be compared, combined, and stress-tested
 without rebuilding the pipeline:
 
@@ -79,8 +79,8 @@ from src.data.market_data import MarketDataStore
 # (q_t_sp = shares*iwf, q_t_vol = cleaned traded volume); the config just names
 # which column fills its Q_t slot. No if/else on names, no dynamic prefixes.
 #
-# construction: one of the six index constructions (value / laspeyres / paasche
-#               / fisher / chained_laspeyres / chained_fisher)
+# construction: one of the seven index constructions (value / laspeyres / paasche
+#               / fisher / chained_laspeyres / chained_paasche / chained_fisher)
 # q_col:       panel column that supplies this variant's Q_t
 # method:      which divisor method (stockmagic chained, or traditional fixed-base)
 # =============================================================================
