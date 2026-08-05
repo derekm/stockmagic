@@ -38,7 +38,7 @@ separate from the trivial base-scaling.
 > basket against stockmagic's SP500 index; the reconciler now defaults to
 > `fisher_indexes_sp500.parquet` (same `sp500_member` sleeve) and the missing
 > chained-Paasche arm was added (`vol_chained_paasche`). Full write-up:
-> `INDEX_MATH_METHODOLOGY.md` §5 (reconciliation table) and §6 (references), plus
+> [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md) §5 (reconciliation table) and §6 (references), plus
 > the S&P-500-vs-rolling-base contrast in §2.2.
 
 ## 2026-08-04 — LFS guard added
@@ -103,7 +103,7 @@ multi-origin test would firm up the direction edge.
 
 ## See also
 
-- `README.md` — repo overview, module map, doc index, and index-math formulas.
-- `INDEX_MATH_METHODOLOGY.md` — full methodology + reconciliation table + references.
-- `MISSING_LINKS.md` — the original missing-links analysis.
-- `RUNBOOK.md` — how to run the pipeline on real data.
+- [README.md](README.md) — repo overview, module map, doc index, and index-math formulas.
+- [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md) — full methodology + reconciliation table + references.
+- [MISSING_LINKS.md](MISSING_LINKS.md) — the original missing-links analysis.
+- [RUNBOOK.md](RUNBOOK.md) — how to run the pipeline on real data.

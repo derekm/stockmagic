@@ -2,7 +2,7 @@
 
 Analysis of the two repos run together. Each item below is a gap where the two
 repos should connect but do not (or connect opaquely). Findings are grounded in
-source reads + live runs (see FINDINGS.md).
+source reads + live runs (see [FINDINGS.md](FINDINGS.md)).
 
 ## The bridge (as built)
 
@@ -24,7 +24,7 @@ clear "run git lfs pull" message. RUNBOOK now documents the prerequisite.
 ### 2. Fisher reconciliation (DONE, revealed a structural divergence)
 stock_monitor computes its own Fisher index (`fisher_index.py` -> `fisher_indexes.parquet`)
 over the same data stockmagic bridges in. stockmagic reimplements the math
-independently. The reconciler now joins them on date. FINDING (see FINDINGS.md):
+independently. The reconciler now joins them on date. FINDING (see [FINDINGS.md](FINDINGS.md)):
 the two are NOT the same index —
   - stock_monitor chained levels start at **base 100**; stockmagic at **base 1000**.
   - stock_monitor uses **volume** as quantity `q`; stockmagic uses **shares*IWF**.
@@ -77,11 +77,11 @@ columns and raises with the missing ones named.
 - #2 reconcile: implemented (`reconcile.py` + `--reconcile`); revealed structural
   divergence, documented.
 - #3-#7: identified; #3/#4/#5 need a data emit or a second run; #6/#7 are
-  structural hygiene. FINDINGS.md tracks the live-run evidence.
+  structural hygiene. [FINDINGS.md](FINDINGS.md) tracks the live-run evidence.
 
 ## See also
 
-- `README.md` — repo overview, module map, doc index, and index-math formulas.
-- `INDEX_MATH_METHODOLOGY.md` — full methodology + reconciliation table + references.
-- `FINDINGS.md` — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
-- `RUNBOOK.md` — how to run the pipeline on real data.
+- [README.md](README.md) — repo overview, module map, doc index, and index-math formulas.
+- [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md) — full methodology + reconciliation table + references.
+- [FINDINGS.md](FINDINGS.md) — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
+- [RUNBOOK.md](RUNBOOK.md) — how to run the pipeline on real data.

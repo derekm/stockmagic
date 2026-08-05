@@ -216,7 +216,7 @@ place stockmagic **already** implements both S&P forms.
 | `sql/nominal_index_pipeline.sql` | Same math as DuckDB-Wasm SQL for the dashboard SQL Lab |
 | `src/analytics/index_math.py` | `IndexMath`: 7 index constructions (value, Laspeyres, Paasche, Fisher + chained Laspeyres/Paasche/Fisher) composed into 19 variant configs across `sp_*` (cap-weighted), `vol_*` (volume-Q), `trad_*` (traditional) families — all maintained in parallel in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically |
 
-See `RUNBOOK.md` for the run/verify commands.
+See [RUNBOOK.md](RUNBOOK.md) for the run/verify commands.
 
 ---
 
@@ -260,7 +260,7 @@ stock_monitor carries prior volume into zero-current sessions at link time).
 
 ## See also
 
-- `README.md` — repo overview, module map, and the full doc index.
-- `FINDINGS.md` — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
-- `MISSING_LINKS.md` — the original missing-links analysis.
-- `RUNBOOK.md` — how to run the pipeline on real data.
+- [README.md](README.md) — repo overview, module map, and the full doc index.
+- [FINDINGS.md](FINDINGS.md) — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
+- [MISSING_LINKS.md](MISSING_LINKS.md) — the original missing-links analysis.
+- [RUNBOOK.md](RUNBOOK.md) — how to run the pipeline on real data.

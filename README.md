@@ -16,7 +16,7 @@ chained Fisher price/quantity decomposition and quality/value dual-pass gates.
 | `src/data/market_data.py` | Raw feed capture (trades, prices, shares, sleeves) + audited clean panel (schema/jump/flatline); bridges real stock_monitor parquet via `build_panel_from_parquet`. |
 | `src/data/pit_snapshots.py` | Point-in-time snapshot timeseries + backfill (daily forward-fill by `as_of <= date`); re-derives `market_cap` / `mktcap_to_assets` from the price panel; `qualify_as_of` builds the quality gate as of any historical date. |
 | `src/analytics/index_math.py` | 7 index constructions (value, Laspeyres, Paasche, Fisher + chained Laspeyres/Paasche/Fisher) composed into 19 variant configs across `sp_*` (cap-weighted), `vol_*` (volume-Q), `trad_*` (traditional) families — all maintained in parallel in `index_levels`; `divisors` registry; `apply_event` re-scales every divisor atomically. |
-| `src/analytics/reconcile.py` | Reconciles stockmagic's `vol_chained_*` variants against `stock_monitor`'s `fisher_indexes_sp500.parquet` (same `sp500_member` sleeve) — validates the reimplementation; see `FINDINGS.md`. |
+| `src/analytics/reconcile.py` | Reconciles stockmagic's `vol_chained_*` variants against `stock_monitor`'s `fisher_indexes_sp500.parquet` (same `sp500_member` sleeve) — validates the reimplementation; see [FINDINGS.md](FINDINGS.md). |
 | `src/adapter_stockmonitor.py` | Runs the full pipeline over the real stock_monitor parquet store; emits live comparison metrics (`substitution_bias_ratio`, `delta_fisher_vs_chained`) and a year-end quality sweep across the whole variant family. |
 | `sql/nominal_index_pipeline.sql` | Same math as a DuckDB-Wasm SQL script for SQL Lab. |
 | `tests/test_index_math.py` | Synthetic-data property tests (all variants run; Fisher identity; value = price × quantity; event continuity; chained ≠ fixed-base). |
@@ -26,10 +26,10 @@ chained Fisher price/quantity decomposition and quality/value dual-pass gates.
 
 | Doc | What it covers |
 |---|---|
-| `INDEX_MATH_METHODOLOGY.md` | The index-number math: S&P divisor continuity + the full Fisher/Laspeyres/Paasche family in parallel; the chained (rolling-base) arms and why the 63-trading-day base is stockmagic's own parameter (not S&P methodology); reconciliation table + references. |
-| `FINDINGS.md` | Dated findings log from running the two repos together — Fisher reconciliation root-cause + resolution, the LFS guard, and the **pass-5 out-of-sample Granite-TTM result** (pass-4 was in-sample memorization; trained on last 10y, Granite-TTM beats persistence on *direction* but not *level*). |
-| `MISSING_LINKS.md` | The original "missing links" analysis — gaps where stockmagic and stock_monitor should connect (reconciliation, PIT bridge, quality gate). |
-| `RUNBOOK.md` | How to run the parallel-variant pipeline on real data, verify, and the LFS pull step. |
+| [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md) | The index-number math: S&P divisor continuity + the full Fisher/Laspeyres/Paasche family in parallel; the chained (rolling-base) arms and why the 63-trading-day base is stockmagic's own parameter (not S&P methodology); reconciliation table + references. |
+| [FINDINGS.md](FINDINGS.md) | Dated findings log from running the two repos together — Fisher reconciliation root-cause + resolution, the LFS guard, and the **pass-5 out-of-sample Granite-TTM result** (pass-4 was in-sample memorization; trained on last 10y, Granite-TTM beats persistence on *direction* but not *level*). |
+| [MISSING_LINKS.md](MISSING_LINKS.md) | The original "missing links" analysis — gaps where stockmagic and stock_monitor should connect (reconciliation, PIT bridge, quality gate). |
+| [RUNBOOK.md](RUNBOOK.md) | How to run the parallel-variant pipeline on real data, verify, and the LFS pull step. |
 
 ## Index math at a glance
 
@@ -48,7 +48,7 @@ families (each family reuses the same 7 constructions on a different `q_t`):
 
 > `chained_paasche` exists only as `vol_chained_paasche` (added to match
 > `stock_monitor`'s volume-weighted Paasche); the `sp_*`/`trad_*` families omit it
-> because a cap-weighted Paasche adds little over the Fisher. See `FINDINGS.md`.
+> because a cap-weighted Paasche adds little over the Fisher. See [FINDINGS.md](FINDINGS.md).
 
 **S&P value (single divisor):** a float-adjusted market-cap aggregate normalized
 so the base day equals `base_level`.
@@ -73,7 +73,7 @@ $$ level_t = baselevel \cdot \exp\!\left( \sum_{\tau \le t} \ln link_\tau \right
 with a divisor that adjusts only on corporate actions — no periodic rebase. The
 63-day rolling base is stockmagic's own chained-index choice (C-CPI-U style
 substitution-bias reduction), **not** S&P methodology. Full detail and the
-reconciliation table: `INDEX_MATH_METHODOLOGY.md`.
+reconciliation table: [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md).
 
 ## Design notes (from the S&P DJI methodology critique)
 
@@ -91,7 +91,7 @@ reconciliation table: `INDEX_MATH_METHODOLOGY.md`.
   share or IWF changes). `apply_event` re-scales the S&P divisor, all fixed arms,
   and the chained levels atomically.
 - **Capping / AWF concentration limits are NOT implemented in this repo** (see
-  `INDEX_MATH_METHODOLOGY.md` §3 — listed as a gap). The quality gate
+  [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md) §3 — listed as a gap). The quality gate
   (Buffett / trifecta / leverage) is the dual-pass first leg, PIT-joined with no
   look-ahead.
 
@@ -107,6 +107,6 @@ python tests/test_pit_snapshots.py
 ```
 
 The full 19-variant pipeline over real data is driven by the adapter — see
-`RUNBOOK.md` for the run/verify commands and the `git lfs pull` step. For the
+[RUNBOOK.md](RUNBOOK.md) for the run/verify commands and the `git lfs pull` step. For the
 cross-repo reconciliation results and the Granite-TTM out-of-sample finding, see
-`FINDINGS.md`.
+[FINDINGS.md](FINDINGS.md).

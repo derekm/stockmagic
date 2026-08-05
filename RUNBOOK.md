@@ -27,7 +27,7 @@ Joins stockmagic `index_levels` to stock_monitor `fisher_indexes.parquet` on dat
 and reports raw + re-based (`norm`) divergence per arm. The two are DIFFERENT
 indexes — stock_monitor uses base 100 + volume as quantity; stockmagic uses base
 1000 + shares*IWF. The reconciler's job is to *quantify* that divergence, not
-eliminate it. See FINDINGS.md / MISSING_LINKS.md for the analysis.
+eliminate it. See [FINDINGS.md](FINDINGS.md) / [MISSING_LINKS.md](MISSING_LINKS.md) for the analysis.
 
 ## Pipeline layers (in execution order)
 1. **Panel bridge** — `MarketDataStore.build_panel_from_parquet` registers the
@@ -83,11 +83,11 @@ atomically (S&P eq. 6 + arm ·k + chained post-event rescale).
   source (e.g. `fundamentals.parquet` quarterly history) — the routine stitches
   those automatically when present.
 - Capping / AWF concentration limits are not implemented (see
-  `INDEX_MATH_METHODOLOGY.md` §3).
+  [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md) §3).
 
 ## See also
 
-- `README.md` — repo overview, module map, doc index, and index-math formulas.
-- `INDEX_MATH_METHODOLOGY.md` — full methodology + reconciliation table + references.
-- `FINDINGS.md` — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
-- `MISSING_LINKS.md` — the original missing-links analysis.
+- [README.md](README.md) — repo overview, module map, doc index, and index-math formulas.
+- [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md) — full methodology + reconciliation table + references.
+- [FINDINGS.md](FINDINGS.md) — dated cross-repo findings (reconciliation resolution, pass-5 OOS Granite result).
+- [MISSING_LINKS.md](MISSING_LINKS.md) — the original missing-links analysis.
