@@ -29,6 +29,7 @@ chained Fisher price/quantity decomposition and quality/value dual-pass gates.
 | [INDEX_MATH_METHODOLOGY.md](INDEX_MATH_METHODOLOGY.md) | The index-number math: S&P divisor continuity + the full Fisher/Laspeyres/Paasche family in parallel; the chained (rolling-base) arms and why the 63-trading-day base is stockmagic's own parameter (not S&P methodology); reconciliation table + references. |
 | [FINDINGS.md](FINDINGS.md) | Dated findings log from running the two repos together — Fisher reconciliation root-cause + resolution, the LFS guard, and the **pass-5 out-of-sample Granite-TTM result** (pass-4 was in-sample memorization; trained on last 10y, Granite-TTM beats persistence on *direction* but not *level*). |
 | [MISSING_LINKS.md](MISSING_LINKS.md) | The original "missing links" analysis — gaps where stockmagic and stock_monitor should connect (reconciliation, PIT bridge, quality gate). |
+| [GLOSSARY.md](GLOSSARY.md) | Acronym dictionary for both repos — every domain, method, and data acronym used across docs and code, verified against source. |
 | [RUNBOOK.md](RUNBOOK.md) | How to run the parallel-variant pipeline on real data, verify, and the LFS pull step. |
 
 ## Index math at a glance
