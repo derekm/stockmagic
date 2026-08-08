@@ -17,29 +17,43 @@ SPCX, …) and SQL keywords are omitted — this covers only real acronyms.
 | P/B | Price-to-Book (mktcap / equity) | value screens, `dual_screen_analysis.py` |
 | D/E | Debt-to-Equity | inclusion rules, `threshold_logic.py` |
 | MCA | Market Cap / Assets ratio (MktCap-to-Assets) | `preferred_metrics.py` (`MCA_MAX`), `fundamentals_history.py` |
-| EPS | Earnings Per Share | `earnings_calendar.parquet` |
+| EPS | Earnings Per Share | `earnings_calendar.parquet`, `estimate_revisions.py` |
 | FCF | Free Cash Flow | growth analytics |
 | TTM | Trailing Twelve Months (4-quarter rolling sums for income items) | `backfill_edgar.py`, `update_fundamentals.py` |
 | OAS | Oracle Approximate Shrinkage (covariance estimator compared in `robust_covariance.py`) | `docs/robust_covariance.md` |
 | S&P 500 | Standard & Poor's 500 index (membership tracked in `sp500_constituents.parquet`) | `inclusion.py`, index math |
+| RSI | Relative Strength Index (14-period, Wilder) | `technical_signals.py` |
+| MACD | Moving Average Convergence/Divergence (12,26,9) | `technical_signals.py` |
+| BB | Bollinger Bands (20d, 2σ; `bb_pct` = %B position) | `technical_signals.py` |
+| KELTNER | Keltner channel (ATR-based band) | `technical_signals.py` |
+| ATM | At-The-Money (IV at strikes within 5% of spot) | `earnings_catalyst.py`, `options_skew.py` |
+| P/C | Put/Call volume ratio (fear/positioning) | `options_skew.py` |
 
 ## Analytics & statistics
 
 | Acronym | Meaning | Where it appears |
 |---|---|---|
 | OOS | Out-of-Sample (honest evaluation; the pass-5 rule: every claimed stat gets an OOS number) | `cv_utils.py`, `pass5.py`, all sprint docs |
+| OOS-IC | OOS information coefficient — IC measured at cutoff−21d (the aggregator's weighting basis) | `signal_aggregator.py` |
 | PIT | Point-in-Time (factors computed as-of each rebalance date, no lookahead) | `cross_section.py`, `docs/cross_section.md` |
 | CV | Cross-Validation (purged K-fold + 21d embargo in `cv_utils.py`) | `cv_utils.py` |
 | FDR | False Discovery Rate (Benjamini–Hochberg multiple-testing correction) | `cv_utils.py` (`bh_fdr`), `pair_engine.py` |
 | BH | Benjamini–Hochberg (the FDR procedure) | `cv_utils.py` |
 | EG | Engle–Granger (two-step cointegration test) | `pair_engine.py` |
 | OU | Ornstein–Uhlenbeck (mean-reverting process; half-life of the spread) | `pair_engine.py` |
-| HMM | Hidden Markov Model (3-state regime detection: low_vol / normal / high_vol_stress) | `hmm_regime_detection.py`, `threshold_logic.py` |
+| HMM | Hidden Markov Model (3-state regime detection: low_vol / normal / high_vol_stress) | `hmm_regime_detection.py`, `threshold_logic.py`, `regime_serving.py` |
 | MCMC | Markov Chain Monte Carlo (regime-conditional return means) | `mcmc_regimes.py` |
 | SMA | Simple Moving Average | alert rules (`above_sma`), momentum |
 | KF | Kalman Filter (regime / state estimation; `kalman_state_estimates` tables) | `kalman_gain_analysis.py`, dashboard Regime/KF tab |
 | PEAD | Post-Earnings Announcement Drift (20d drift after surprise buckets) | `earnings_catalyst.py` |
 | IC | Information Coefficient (rank correlation of signal vs forward returns) | `signal_aggregator.py`, `momentum_ic` |
+| GBM | Gradient Boosting Machine — the supervised signal blend (`signal_model.py`, sklearn) | `signal_model.py` |
+| MC-DROPOUT | Monte-Carlo dropout — stochastic forwards at inference for an uncertainty std band | `forecast_granite.py` (`--uncertainty`) |
+| FIFO | First-In First-Out tax-lot accounting (sells consume the oldest lot) | `shadow_book.py` |
+| FOMC | Federal Open Market Committee (meeting dates in the economic calendar) | `economic_calendar.py` |
+| CPI | Consumer Price Index (macro event in the economic calendar) | `economic_calendar.py` |
+| CALMAR | Calmar ratio (annualized return / max drawdown) | `perf_metrics.py` |
+| PROFIT FACTOR | Gross profit / gross loss of a trade set | `perf_metrics.py` |
 | MAPE | Mean Absolute Percentage Error | `pass5.py`, `cv_utils.py` |
 | MAE | Mean Absolute Error | `pass5.py` |
 | CVaR | Conditional Value-at-Risk (5% tail loss, `cvar_5pct`) | `tail_risk_hedging.py`, `risk_enrich.py` |
@@ -51,7 +65,7 @@ SPCX, …) and SQL keywords are omitted — this covers only real acronyms.
 | VT | Vol-Target(ed) (vol_target_renorm scheme) | `portfolio_optimization.py` |
 | RC | Risk Contribution (share of portfolio variance per name) | `portfolio_optimization.py` |
 | DD | Drawdown | tail-risk stats |
-| IV | Implied Volatility (options chain; vs realized in `iv_rich`) | `earnings_catalyst.py` |
+| IV | Implied Volatility (options chain; vs realized in `iv_rich`) | `earnings_catalyst.py`, `options_skew.py` |
 | GICS | Global Industry Classification Standard (sectors) | `monitored_stocks.parquet` |
 
 ## Modeling & compute
@@ -104,6 +118,11 @@ SPCX, …) and SQL keywords are omitted — this covers only real acronyms.
 | RECENT | Granite training window constant (~10y) in `pass4.py` |
 | HORIZON / CONTEXT | Granite-TTM forecast horizon (96) / context length (512) |
 | JOBS | Job table in `run_daily_automation.py` |
+| PASS5 / PASS6 / PASS7 | Honest-OOS research passes: pass5 = direction-vs-persistence, pass6 = per-regime models, pass7 = experiment-design matrix |
+| REGIME-SERVING | `regime_serving.py` — serves the current regime's checkpoint (ensemble in forecast_granite) |
+| AGGREGATE | The `aggregate` daily job — `signal_aggregator.py` output consumed by buy_candidates |
+| SHADOW | `shadow_book.py` — paper-trade book replaying buy_candidates targets |
+| SPANS | Per-horizon direction accuracy (`dir_acc_h10..h96`) reported by pass6 + forecast output |
 
 ---
 
